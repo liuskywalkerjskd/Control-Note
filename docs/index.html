@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>A Practical Guide to Control Theory</title>
+    <style>
+        :root {
+            --bg: #fafafa;
+            --card-bg: #ffffff;
+            --text: #1a1a2e;
+            --text-secondary: #555;
+            --accent: #2563eb;
+            --accent-hover: #1d4ed8;
+            --border: #e5e7eb;
+            --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
+            --shadow-lg: 0 10px 25px rgba(0,0,0,0.1);
+            --radius: 12px;
+        }
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: #0f172a;
+                --card-bg: #1e293b;
+                --text: #e2e8f0;
+                --text-secondary: #94a3b8;
+                --accent: #60a5fa;
+                --accent-hover: #93bbfc;
+                --border: #334155;
+                --shadow: 0 1px 3px rgba(0,0,0,0.3);
+                --shadow-lg: 0 10px 25px rgba(0,0,0,0.4);
+            }
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans SC', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+        }
+
+        /* Header */
+        .header {
+            text-align: center;
+            padding: 60px 20px 40px;
+        }
+        .header h1 {
+            font-size: 2.2rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        .header .subtitle {
+            font-size: 1.1rem;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+        }
+        .header .author {
+            font-size: 0.95rem;
+            color: var(--text-secondary);
+        }
+        .header .author a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+        .header .author a:hover { text-decoration: underline; }
+
+        /* Language toggle */
+        .lang-toggle {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin: 24px 0;
+        }
+        .lang-btn {
+            padding: 8px 20px;
+            border: 1.5px solid var(--border);
+            border-radius: 8px;
+            background: var(--card-bg);
+            color: var(--text);
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+        }
+        .lang-btn:hover { border-color: var(--accent); color: var(--accent); }
+        .lang-btn.active {
+            background: var(--accent);
+            color: #fff;
+            border-color: var(--accent);
+        }
+
+        /* Main content */
+        .container {
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 0 20px 60px;
+        }
+
+        /* TOC Card */
+        .toc-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            padding: 32px;
+            margin-bottom: 32px;
+        }
+        .toc-card h2 {
+            font-size: 1.3rem;
+            margin-bottom: 20px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+        .toc-list {
+            list-style: none;
+        }
+        .toc-list li {
+            display: flex;
+            align-items: baseline;
+            padding: 10px 0;
+            border-bottom: 1px solid var(--border);
+        }
+        .toc-list li:last-child { border-bottom: none; }
+        .toc-num {
+            font-weight: 700;
+            color: var(--accent);
+            min-width: 36px;
+            font-size: 0.9rem;
+        }
+        .toc-title {
+            font-weight: 600;
+            margin-right: 8px;
+        }
+        .toc-desc {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        /* Read buttons */
+        .read-section {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-bottom: 40px;
+        }
+        .read-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 14px 28px;
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            transition: all 0.2s;
+            box-shadow: var(--shadow);
+        }
+        .read-btn:hover {
+            background: var(--accent-hover);
+            box-shadow: var(--shadow-lg);
+            transform: translateY(-1px);
+        }
+        .read-btn.outline {
+            background: var(--card-bg);
+            color: var(--accent);
+            border: 1.5px solid var(--accent);
+        }
+        .read-btn.outline:hover {
+            background: var(--accent);
+            color: #fff;
+        }
+        .read-btn svg {
+            width: 20px;
+            height: 20px;
+            fill: currentColor;
+        }
+
+        /* PDF Viewer */
+        .viewer-wrapper {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-lg);
+            overflow: hidden;
+            margin-bottom: 32px;
+            display: none;
+        }
+        .viewer-wrapper.active { display: block; }
+        .viewer-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 16px;
+            background: var(--card-bg);
+            border-bottom: 1px solid var(--border);
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .viewer-toolbar .title {
+            font-weight: 600;
+            font-size: 0.95rem;
+        }
+        .viewer-toolbar .controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .viewer-toolbar button {
+            padding: 6px 12px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--card-bg);
+            color: var(--text);
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: all 0.15s;
+        }
+        .viewer-toolbar button:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+        .viewer-toolbar .close-btn {
+            color: #ef4444;
+            border-color: #ef4444;
+        }
+        .viewer-toolbar .close-btn:hover {
+            background: #ef4444;
+            color: #fff;
+        }
+        .pdf-frame {
+            width: 100%;
+            height: 80vh;
+            border: none;
+        }
+
+        /* Info cards */
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 16px;
+            margin-bottom: 32px;
+        }
+        .info-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 24px;
+            box-shadow: var(--shadow);
+        }
+        .info-card h3 {
+            font-size: 1.05rem;
+            margin-bottom: 8px;
+        }
+        .info-card p {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        /* Footer */
+        .footer {
+            text-align: center;
+            padding: 32px 20px;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            border-top: 1px solid var(--border);
+        }
+        .footer a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+        .footer a:hover { text-decoration: underline; }
+
+        @media (max-width: 600px) {
+            .header h1 { font-size: 1.6rem; }
+            .toc-card { padding: 20px; }
+            .read-section { flex-direction: column; align-items: center; }
+            .pdf-frame { height: 60vh; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1 id="title">A Practical Guide to Control Theory</h1>
+    <p class="subtitle" id="subtitle">From Sensor Noise to Kalman Filters, From PID to MPC</p>
+    <p class="author">
+        by Skywalker Liu &middot;
+        <a href="https://github.com/liuskywalkerjskd/Control-Note" target="_blank">GitHub</a>
+    </p>
+    <div class="lang-toggle">
+        <button class="lang-btn active" onclick="setLang('en')">English</button>
+        <button class="lang-btn" onclick="setLang('zh')">中文</button>
+    </div>
+</div>
+
+<div class="container">
+    <!-- Read buttons -->
+    <div class="read-section">
+        <a class="read-btn" href="#" onclick="openViewer('zh'); return false;">
+            <svg viewBox="0 0 24 24"><path d="M12 6.25278V19.2528M12 6.25278C10.8321 5.47686 9.24649 5 7.5 5C5.75351 5 4.16789 5.47686 3 6.25278V19.2528C4.16789 18.4769 5.75351 18 7.5 18C9.24649 18 10.8321 18.4769 12 19.2528M12 6.25278C13.1679 5.47686 14.7535 5 16.5 5C18.2465 5 19.8321 5.47686 21 6.25278V19.2528C19.8321 18.4769 18.2465 18 16.5 18C14.7535 18 13.1679 18.4769 12 19.2528"/></svg>
+            <span id="btn-read-zh">Read Online (Chinese)</span>
+        </a>
+        <a class="read-btn outline" href="#" onclick="openViewer('en'); return false;">
+            <svg viewBox="0 0 24 24"><path d="M12 6.25278V19.2528M12 6.25278C10.8321 5.47686 9.24649 5 7.5 5C5.75351 5 4.16789 5.47686 3 6.25278V19.2528C4.16789 18.4769 5.75351 18 7.5 18C9.24649 18 10.8321 18.4769 12 19.2528M12 6.25278C13.1679 5.47686 14.7535 5 16.5 5C18.2465 5 19.8321 5.47686 21 6.25278V19.2528C19.8321 18.4769 18.2465 18 16.5 18C14.7535 18 13.1679 18.4769 12 19.2528"/></svg>
+            <span id="btn-read-en">Read Online (English)</span>
+        </a>
+        <a class="read-btn outline" href="Control_Theory_Note_cn.pdf" download>
+            <svg viewBox="0 0 24 24"><path d="M12 16l-5-5h3V4h4v7h3l-5 5zm-7 4h14v-2H5v2z"/></svg>
+            <span id="btn-dl">Download PDF</span>
+        </a>
+    </div>
+
+    <!-- PDF Viewer -->
+    <div class="viewer-wrapper" id="viewer-zh">
+        <div class="viewer-toolbar">
+            <span class="title" id="viewer-zh-title">Control Theory Note (Chinese)</span>
+            <div class="controls">
+                <button onclick="window.open('Control_Theory_Note_cn.pdf','_blank')">Open in New Tab</button>
+                <button class="close-btn" onclick="closeViewer('zh')">Close</button>
+            </div>
+        </div>
+        <iframe class="pdf-frame" src="" id="frame-zh"></iframe>
+    </div>
+
+    <div class="viewer-wrapper" id="viewer-en">
+        <div class="viewer-toolbar">
+            <span class="title" id="viewer-en-title">Control Theory Note (English)</span>
+            <div class="controls">
+                <button onclick="window.open('Control_Theory_Note.pdf','_blank')">Open in New Tab</button>
+                <button class="close-btn" onclick="closeViewer('en')">Close</button>
+            </div>
+        </div>
+        <iframe class="pdf-frame" src="" id="frame-en"></iframe>
+    </div>
+
+    <!-- TOC -->
+    <div class="toc-card">
+        <h2 id="toc-heading">Table of Contents</h2>
+        <ul class="toc-list" id="toc-en">
+            <li><span class="toc-num">1</span><span class="toc-title">Introduction</span><span class="toc-desc">Motivation, learning path, how to use this guide</span></li>
+            <li><span class="toc-num">2</span><span class="toc-title">Digital Signal Processing</span><span class="toc-desc">Frequency domain, Laplace/Fourier transforms, LPF, complementary & notch filters</span></li>
+            <li><span class="toc-num">3</span><span class="toc-title">System Description</span><span class="toc-desc">Transfer functions, state-space, poles & zeros, stability analysis</span></li>
+            <li><span class="toc-num">4</span><span class="toc-title">Classical Control</span><span class="toc-desc">PID (single/cascade/parallel), tuning, feedforward, trajectory generation</span></li>
+            <li><span class="toc-num">5</span><span class="toc-title">Discretization & Implementation</span><span class="toc-desc">ZOH, Tustin, matched Z-transform, MCU implementation</span></li>
+            <li><span class="toc-num">6</span><span class="toc-title">Modern Control</span><span class="toc-desc">LQR, Kalman filter, EKF, quaternion EKF, LQG, linear MPC</span></li>
+            <li><span class="toc-num">7</span><span class="toc-title">Future Prospects</span><span class="toc-desc">Data-driven control, reinforcement learning, iLQR/DDP, neural networks + control</span></li>
+            <li><span class="toc-num">A</span><span class="toc-title">Appendix: C++ Modules</span><span class="toc-desc">Header-only, embedded-ready implementations of all algorithms</span></li>
+        </ul>
+        <ul class="toc-list" id="toc-zh" style="display:none">
+            <li><span class="toc-num">1</span><span class="toc-title">引言</span><span class="toc-desc">为什么写这份指南，结构说明</span></li>
+            <li><span class="toc-num">2</span><span class="toc-title">数字信号处理</span><span class="toc-desc">频域、拉普拉斯/傅里叶变换、低通/互补/陷波滤波器</span></li>
+            <li><span class="toc-num">3</span><span class="toc-title">系统描述</span><span class="toc-desc">传递函数、状态空间模型、极点与零点、稳定性分析</span></li>
+            <li><span class="toc-num">4</span><span class="toc-title">经典控制理论</span><span class="toc-desc">PID（单环/串级/并联）、调参方法、前馈、轨迹生成</span></li>
+            <li><span class="toc-num">5</span><span class="toc-title">离散化与实现</span><span class="toc-desc">ZOH、Tustin、匹配 Z 变换、单片机实现</span></li>
+            <li><span class="toc-num">6</span><span class="toc-title">现代控制理论</span><span class="toc-desc">LQR、卡尔曼滤波、EKF、四元数 EKF、LQG、线性 MPC</span></li>
+            <li><span class="toc-num">7</span><span class="toc-title">展望</span><span class="toc-desc">数据驱动控制、强化学习、iLQR/DDP、神经网络与控制融合</span></li>
+            <li><span class="toc-num">附</span><span class="toc-title">附录：即插即用 C++ 模块</span><span class="toc-desc">仅头文件、嵌入式友好的全部核心算法实现</span></li>
+        </ul>
+    </div>
+
+    <!-- Info cards -->
+    <div class="info-grid">
+        <div class="info-card">
+            <h3 id="card1-title">Who Is This For?</h3>
+            <p id="card1-desc">Undergraduate students (year 1-3) with basic calculus and linear algebra. If derivatives don't scare you, you're ready.</p>
+        </div>
+        <div class="info-card">
+            <h3 id="card2-title">What Makes This Different?</h3>
+            <p id="card2-desc">Organized by engineering workflow, not mathematical abstraction. Every concept answers: "What is this for when the robot hits the field?"</p>
+        </div>
+        <div class="info-card">
+            <h3 id="card3-title">Battle-Tested Code</h3>
+            <p id="card3-desc">Header-only C++ modules in the appendix -- no heap allocation, no exceptions, ISR-safe. Copy into your project and go.</p>
+        </div>
+    </div>
+</div>
+
+<div class="footer">
+    <p>
+        Built by <a href="https://github.com/liuskywalkerjskd" target="_blank">Skywalker Liu</a> &middot;
+        <a href="https://github.com/liuskywalkerjskd/Control-Note" target="_blank">Source on GitHub</a> &middot;
+        Contributions welcome
+    </p>
+</div>
+
+<script>
+const i18n = {
+    en: {
+        title: 'A Practical Guide to Control Theory',
+        subtitle: 'From Sensor Noise to Kalman Filters, From PID to MPC',
+        tocHeading: 'Table of Contents',
+        btnReadZh: 'Read Online (Chinese)',
+        btnReadEn: 'Read Online (English)',
+        btnDl: 'Download PDF',
+        viewerZhTitle: 'Control Theory Note (Chinese)',
+        viewerEnTitle: 'Control Theory Note (English)',
+        card1Title: 'Who Is This For?',
+        card1Desc: 'Undergraduate students (year 1-3) with basic calculus and linear algebra. If derivatives don\'t scare you, you\'re ready.',
+        card2Title: 'What Makes This Different?',
+        card2Desc: 'Organized by engineering workflow, not mathematical abstraction. Every concept answers: "What is this for when the robot hits the field?"',
+        card3Title: 'Battle-Tested Code',
+        card3Desc: 'Header-only C++ modules in the appendix -- no heap allocation, no exceptions, ISR-safe. Copy into your project and go.'
+    },
+    zh: {
+        title: '控制理论实用指南',
+        subtitle: '从传感器噪声到卡尔曼滤波，从 PID 到 MPC',
+        tocHeading: '目录',
+        btnReadZh: '在线阅读（中文版）',
+        btnReadEn: '在线阅读（英文版）',
+        btnDl: '下载 PDF',
+        viewerZhTitle: '控制理论笔记（中文版）',
+        viewerEnTitle: '控制理论笔记（英文版）',
+        card1Title: '写给谁看？',
+        card1Desc: '大一到大三的本科生。前置知识：微积分和基础线性代数。知道导数是什么就够了。',
+        card2Title: '有什么特别之处？',
+        card2Desc: '围绕工程工作流组织，而非数学抽象。每个概念都会追问："机器人上场的时候，这玩意到底有什么用？"',
+        card3Title: '经过实战检验的代码',
+        card3Desc: '附录中的 C++ 模块：仅头文件、无堆分配、无异常、中断安全。直接复制到你的项目即可使用。'
+    }
+};
+
+let currentLang = 'en';
+
+function setLang(lang) {
+    currentLang = lang;
+    const t = i18n[lang];
+    document.getElementById('title').textContent = t.title;
+    document.getElementById('subtitle').textContent = t.subtitle;
+    document.getElementById('toc-heading').textContent = t.tocHeading;
+    document.getElementById('btn-read-zh').textContent = t.btnReadZh;
+    document.getElementById('btn-read-en').textContent = t.btnReadEn;
+    document.getElementById('btn-dl').textContent = t.btnDl;
+    document.getElementById('viewer-zh-title').textContent = t.viewerZhTitle;
+    document.getElementById('viewer-en-title').textContent = t.viewerEnTitle;
+    document.getElementById('card1-title').textContent = t.card1Title;
+    document.getElementById('card1-desc').textContent = t.card1Desc;
+    document.getElementById('card2-title').textContent = t.card2Title;
+    document.getElementById('card2-desc').textContent = t.card2Desc;
+    document.getElementById('card3-title').textContent = t.card3Title;
+    document.getElementById('card3-desc').textContent = t.card3Desc;
+
+    document.getElementById('toc-en').style.display = lang === 'en' ? '' : 'none';
+    document.getElementById('toc-zh').style.display = lang === 'zh' ? '' : 'none';
+
+    document.querySelectorAll('.lang-btn').forEach(b => b.classList.remove('active'));
+    document.querySelector(`.lang-btn[onclick="setLang('${lang}')"]`).classList.add('active');
+}
+
+function openViewer(version) {
+    const id = 'viewer-' + version;
+    const frameId = 'frame-' + version;
+    const el = document.getElementById(id);
+    const frame = document.getElementById(frameId);
+
+    if (el.classList.contains('active')) {
+        el.classList.remove('active');
+        frame.src = '';
+        return;
+    }
+
+    // Close the other viewer
+    document.querySelectorAll('.viewer-wrapper').forEach(v => {
+        v.classList.remove('active');
+        v.querySelector('iframe').src = '';
+    });
+
+    const pdf = version === 'zh' ? 'Control_Theory_Note_cn.pdf' : 'Control_Theory_Note.pdf';
+    frame.src = pdf;
+    el.classList.add('active');
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function closeViewer(version) {
+    const el = document.getElementById('viewer-' + version);
+    el.classList.remove('active');
+    el.querySelector('iframe').src = '';
+}
+</script>
+
+</body>
+</html>
