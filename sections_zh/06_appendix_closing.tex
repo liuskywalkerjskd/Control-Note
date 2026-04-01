@@ -1,0 +1,1005 @@
+%=============================================================================
+\section{附录：即插即用 C++ 模块}
+%=============================================================================
+
+本附录提供了笔记中所有主要算法的生产级、仅头文件（header-only）C++ 实现。每个模块均自成一体——只需将头文件放入项目中即可使用。所有模块均针对嵌入式系统设计（无动态内存分配、无异常、无 STL 容器）。
+
+\textbf{设计理念（Design Philosophy）：}
+\begin{itemize}
+    \item \textbf{仅头文件（Header-only）}：无需 \texttt{.cpp} 文件。直接包含即用。
+    \item \textbf{无堆分配（No heap allocation）}：所有数据均存于栈上，或通过模板进行静态尺寸确定。
+    \item \textbf{极少依赖（Minimal dependencies）}：仅依赖 \texttt{<cmath>} 与 \texttt{<cstring>}，无 STL。
+    \item \textbf{中断安全（ISR-safe）}：所有 \texttt{update()} 方法均可在定时器中断中安全调用。
+    \item \textbf{基于模板（Template-based）}：矩阵维度为编译期常量，实现零开销抽象。
+\end{itemize}
+
+\subsection{低通滤波器（Low-Pass Filter）}
+
+一阶 IIR 低通滤波器。一行构造，一行使用。
+
+\begin{verbatim}
+// lpf.hpp
+#pragma once
+#include <cmath>
+
+class LowPassFilter {
+public:
+    LowPassFilter() : alpha_(1.0f), y_prev_(0.0f), initialized_(false) {}
+
+    /// 用截止频率（Hz）和采样周期（s）进行配置
+    void configure(float cutoff_hz, float dt) {
+        float rc = 1.0f / (2.0f * M_PI * cutoff_hz);
+        alpha_ = dt / (rc + dt);
+    }
+
+    /// 直接设置平滑因子（0 < alpha <= 1）
+    void set_alpha(float alpha) { alpha_ = alpha; }
+
+    /// 处理一个采样点，以固定采样率调用
+    float update(float x) {
+        if (!initialized_) {
+            y_prev_ = x;
+            initialized_ = true;
+            return x;
+        }
+        y_prev_ = alpha_ * x + (1.0f - alpha_) * y_prev_;
+        return y_prev_;
+    }
+
+    /// 重置滤波器状态
+    void reset() { initialized_ = false; y_prev_ = 0.0f; }
+
+    /// 获取当前滤波值，不输入新采样点
+    float value() const { return y_prev_; }
+
+private:
+    float alpha_;
+    float y_prev_;
+    bool  initialized_;
+};
+\end{verbatim}
+
+\textbf{用法（Usage）：}
+\begin{verbatim}
+    LowPassFilter gyro_filter;
+    gyro_filter.configure(30.0f, 0.001f);  // 截止频率 30 Hz，采样频率 1 kHz
+
+    // 在控制循环 ISR 中：
+    float gyro_clean = gyro_filter.update(gyro_raw);
+\end{verbatim}
+
+\subsection{PID 控制器（PID Controller）}
+
+功能完整的 PID，包含反计算抗积分饱和（back-calculation anti-windup）、测量值微分（derivative-on-measurement）、微分滤波和输出限幅。
+
+\begin{verbatim}
+// pid.hpp
+#pragma once
+#include <cmath>
+
+struct PIDConfig {
+    float kp = 0.0f;
+    float ki = 0.0f;
+    float kd = 0.0f;
+    float dt = 0.001f;         // 采样周期（s）
+    float out_min = -1e6f;     // 输出下限
+    float out_max =  1e6f;     // 输出上限
+    float integral_max = 1e6f; // 积分项限幅
+    float d_filter_N = 10.0f;  // 微分滤波系数（越大滤波越弱）
+};
+
+class PID {
+public:
+    PID() = default;
+    explicit PID(const PIDConfig& cfg) : cfg_(cfg) {}
+
+    void configure(const PIDConfig& cfg) { cfg_ = cfg; }
+
+    /// 计算 PID 输出，每个控制周期调用一次
+    /// setpoint: 期望值，measurement: 实测值
+    float update(float setpoint, float measurement) {
+        float error = setpoint - measurement;
+
+        // --- 比例项 ---
+        float p_term = cfg_.kp * error;
+
+        // --- 带反计算抗积分饱和的积分项 ---
+        integral_ += cfg_.ki * error * cfg_.dt + anti_windup_;
+        integral_ = clamp(integral_, -cfg_.integral_max, cfg_.integral_max);
+
+        // --- 测量值微分（避免微分冲击）---
+        //     带一阶低通滤波器
+        float d_raw = -(measurement - meas_prev_) / cfg_.dt;
+        float alpha_d = cfg_.dt * cfg_.d_filter_N
+                      / (1.0f + cfg_.dt * cfg_.d_filter_N);
+        d_filtered_ = alpha_d * d_raw + (1.0f - alpha_d) * d_filtered_;
+        float d_term = cfg_.kd * d_filtered_;
+
+        meas_prev_ = measurement;
+
+        // --- 总输出 ---
+        float output_raw = p_term + integral_ + d_term;
+        float output = clamp(output_raw, cfg_.out_min, cfg_.out_max);
+
+        // --- 反计算抗积分饱和 ---
+        if (cfg_.ki != 0.0f) {
+            anti_windup_ = (output - output_raw) * (1.0f / cfg_.ki)
+                         * cfg_.dt * 0.5f;
+        } else {
+            anti_windup_ = 0.0f;
+        }
+
+        return output;
+    }
+
+    void reset() {
+        integral_ = 0.0f;
+        d_filtered_ = 0.0f;
+        meas_prev_ = 0.0f;
+        anti_windup_ = 0.0f;
+    }
+
+    // 访问内部状态用于调试
+    float get_integral() const { return integral_; }
+
+private:
+    PIDConfig cfg_;
+    float integral_    = 0.0f;
+    float d_filtered_  = 0.0f;
+    float meas_prev_   = 0.0f;
+    float anti_windup_ = 0.0f;
+
+    static float clamp(float v, float lo, float hi) {
+        return v < lo ? lo : (v > hi ? hi : v);
+    }
+};
+\end{verbatim}
+
+\textbf{用法（Usage）：}
+\begin{verbatim}
+    PIDConfig cfg;
+    cfg.kp = 6.0f;  cfg.ki = 0.3f;  cfg.kd = 3.0f;
+    cfg.dt = 0.001f;
+    cfg.out_min = -30000.0f;  cfg.out_max = 30000.0f;  // GM6020 输出范围
+    cfg.integral_max = 10000.0f;
+
+    PID yaw_pid(cfg);
+
+    // 在 ISR 中：
+    float torque_cmd = yaw_pid.update(target_angle, current_angle);
+\end{verbatim}
+
+\subsection{给定值斜坡（Setpoint Ramp，LPF 软启动）}
+
+专用给定值平滑器——封装低通滤波器，实现限速的给定值过渡。
+
+\begin{verbatim}
+// ramp.hpp
+#pragma once
+#include "lpf.hpp"
+
+class SetpointRamp {
+public:
+    /// ramp_time: 阶跃变化到达 95% 所需的近似时间（秒）
+    void configure(float ramp_time, float dt) {
+        float cutoff = 3.0f / (2.0f * M_PI * ramp_time);  // 3*tau ~ 95%
+        filter_.configure(cutoff, dt);
+    }
+
+    float update(float raw_setpoint) {
+        return filter_.update(raw_setpoint);
+    }
+
+    void reset() { filter_.reset(); }
+
+private:
+    LowPassFilter filter_;
+};
+\end{verbatim}
+
+\subsection{互补滤波器（Complementary Filter，IMU 倾斜估计）}
+
+融合加速度计（重力倾斜）与陀螺仪（角速率）。
+
+\begin{verbatim}
+// complementary_filter.hpp
+#pragma once
+#include <cmath>
+
+class ComplementaryFilter {
+public:
+    /// alpha: 陀螺仪信任系数（典型值 0.95-0.99）
+    void configure(float alpha, float dt) {
+        alpha_ = alpha;
+        dt_ = dt;
+    }
+
+    /// accel_angle: 由加速度计计算的倾斜角（rad）
+    /// gyro_rate:   陀螺仪角速率（rad/s）
+    /// 返回值:      融合后的角度估计（rad）
+    float update(float accel_angle, float gyro_rate) {
+        angle_ = alpha_ * (angle_ + gyro_rate * dt_)
+               + (1.0f - alpha_) * accel_angle;
+        return angle_;
+    }
+
+    void reset(float initial_angle = 0.0f) { angle_ = initial_angle; }
+    float angle() const { return angle_; }
+
+private:
+    float alpha_ = 0.98f;
+    float dt_    = 0.001f;
+    float angle_ = 0.0f;
+};
+\end{verbatim}
+
+\subsection{轻量矩阵库（Lightweight Matrix Library）}
+
+编译期固定尺寸矩阵，用于嵌入式卡尔曼滤波器/LQR。无堆分配，无 STL。
+
+\begin{verbatim}
+// mat.hpp
+#pragma once
+#include <cstring>
+#include <cmath>
+
+template<int ROWS, int COLS>
+struct Mat {
+    float data[ROWS][COLS] = {};
+
+    float& operator()(int r, int c)       { return data[r][c]; }
+    float  operator()(int r, int c) const { return data[r][c]; }
+
+    static Mat zeros() { Mat m; return m; }
+
+    static Mat identity() {
+        static_assert(ROWS == COLS, "Identity requires square matrix");
+        Mat m;
+        for (int i = 0; i < ROWS; ++i) m.data[i][i] = 1.0f;
+        return m;
+    }
+
+    // 矩阵加法
+    Mat operator+(const Mat& rhs) const {
+        Mat r;
+        for (int i = 0; i < ROWS; ++i)
+            for (int j = 0; j < COLS; ++j)
+                r.data[i][j] = data[i][j] + rhs.data[i][j];
+        return r;
+    }
+
+    // 矩阵减法
+    Mat operator-(const Mat& rhs) const {
+        Mat r;
+        for (int i = 0; i < ROWS; ++i)
+            for (int j = 0; j < COLS; ++j)
+                r.data[i][j] = data[i][j] - rhs.data[i][j];
+        return r;
+    }
+
+    // 矩阵乘法
+    template<int COLS2>
+    Mat<ROWS, COLS2> operator*(const Mat<COLS, COLS2>& rhs) const {
+        Mat<ROWS, COLS2> r;
+        for (int i = 0; i < ROWS; ++i)
+            for (int j = 0; j < COLS2; ++j)
+                for (int k = 0; k < COLS; ++k)
+                    r.data[i][j] += data[i][k] * rhs.data[k][j];
+        return r;
+    }
+
+    // 标量乘法
+    Mat operator*(float s) const {
+        Mat r;
+        for (int i = 0; i < ROWS; ++i)
+            for (int j = 0; j < COLS; ++j)
+                r.data[i][j] = data[i][j] * s;
+        return r;
+    }
+
+    // 转置
+    Mat<COLS, ROWS> T() const {
+        Mat<COLS, ROWS> r;
+        for (int i = 0; i < ROWS; ++i)
+            for (int j = 0; j < COLS; ++j)
+                r.data[j][i] = data[i][j];
+        return r;
+    }
+
+    // 2x2 或 3x3 逆矩阵（仅限小矩阵，供卡尔曼滤波器使用）
+    Mat inverse() const;
+};
+
+// 1x1 逆矩阵
+template<> inline Mat<1,1> Mat<1,1>::inverse() const {
+    Mat<1,1> r;
+    r.data[0][0] = 1.0f / data[0][0];
+    return r;
+}
+
+// 2x2 逆矩阵
+template<> inline Mat<2,2> Mat<2,2>::inverse() const {
+    Mat<2,2> r;
+    float det = data[0][0]*data[1][1] - data[0][1]*data[1][0];
+    float inv_det = 1.0f / det;
+    r.data[0][0] =  data[1][1] * inv_det;
+    r.data[0][1] = -data[0][1] * inv_det;
+    r.data[1][0] = -data[1][0] * inv_det;
+    r.data[1][1] =  data[0][0] * inv_det;
+    return r;
+}
+
+// 3x3 逆矩阵
+template<> inline Mat<3,3> Mat<3,3>::inverse() const {
+    Mat<3,3> r;
+    float det = data[0][0]*(data[1][1]*data[2][2]-data[1][2]*data[2][1])
+              - data[0][1]*(data[1][0]*data[2][2]-data[1][2]*data[2][0])
+              + data[0][2]*(data[1][0]*data[2][1]-data[1][1]*data[2][0]);
+    float inv = 1.0f / det;
+    r(0,0)=(data[1][1]*data[2][2]-data[1][2]*data[2][1])*inv;
+    r(0,1)=(data[0][2]*data[2][1]-data[0][1]*data[2][2])*inv;
+    r(0,2)=(data[0][1]*data[1][2]-data[0][2]*data[1][1])*inv;
+    r(1,0)=(data[1][2]*data[2][0]-data[1][0]*data[2][2])*inv;
+    r(1,1)=(data[0][0]*data[2][2]-data[0][2]*data[2][0])*inv;
+    r(1,2)=(data[0][2]*data[1][0]-data[0][0]*data[1][2])*inv;
+    r(2,0)=(data[1][0]*data[2][1]-data[1][1]*data[2][0])*inv;
+    r(2,1)=(data[0][1]*data[2][0]-data[0][0]*data[2][1])*inv;
+    r(2,2)=(data[0][0]*data[1][1]-data[0][1]*data[1][0])*inv;
+    return r;
+}
+\end{verbatim}
+
+\subsection{卡尔曼滤波器（Kalman Filter）}
+
+通用离散时间卡尔曼滤波器。模板参数在编译期确定状态维度与测量维度。
+
+\begin{verbatim}
+// kalman.hpp
+#pragma once
+#include "mat.hpp"
+
+template<int N_STATE, int N_MEAS, int N_INPUT = 1>
+class KalmanFilter {
+public:
+    using StateVec  = Mat<N_STATE, 1>;
+    using MeasVec   = Mat<N_MEAS, 1>;
+    using InputVec  = Mat<N_INPUT, 1>;
+    using StateMat  = Mat<N_STATE, N_STATE>;
+    using InputMat  = Mat<N_STATE, N_INPUT>;
+    using MeasMat   = Mat<N_MEAS, N_STATE>;
+    using GainMat   = Mat<N_STATE, N_MEAS>;
+    using MeasCov   = Mat<N_MEAS, N_MEAS>;
+
+    StateMat A;   // 状态转移矩阵
+    InputMat B;   // 输入矩阵
+    MeasMat  C;   // 测量矩阵（部分文献记为 H）
+    StateMat Q;   // 过程噪声协方差
+    MeasCov  R;   // 测量噪声协方差
+
+    StateVec x;   // 状态估计
+    StateMat P;   // 估计协方差
+
+    /// 预测步骤：向前传播状态与协方差
+    void predict(const InputVec& u) {
+        x = A * x + B * u;
+        P = A * P * A.T() + Q;
+    }
+
+    /// 预测步骤（无输入）
+    void predict() {
+        x = A * x;
+        P = A * P * A.T() + Q;
+    }
+
+    /// 更新步骤：融合测量值
+    void update(const MeasVec& z) {
+        // 新息
+        MeasVec y = z - C * x;
+        // 新息协方差
+        MeasCov S = C * P * C.T() + R;
+        // 卡尔曼增益
+        GainMat K = P * C.T() * S.inverse();
+        // 状态更新
+        x = x + K * y;
+        // 协方差更新（Joseph 形式，提高数值稳定性）
+        StateMat I_KC = StateMat::identity() - K * C;
+        P = I_KC * P * I_KC.T() + K * R * K.T();
+    }
+
+    /// 预测 + 更新合并
+    void step(const InputVec& u, const MeasVec& z) {
+        predict(u);
+        update(z);
+    }
+};
+\end{verbatim}
+
+\textbf{用法——IMU 倾斜估计（案例研究中的 2 状态卡尔曼滤波器）：}
+\begin{verbatim}
+    KalmanFilter<2, 1, 1> kf;
+    float dt = 0.001f;
+
+    // 状态：[角度, 陀螺仪偏置]
+    kf.A(0,0) = 1.0f;  kf.A(0,1) = -dt;
+    kf.A(1,0) = 0.0f;  kf.A(1,1) = 1.0f;
+
+    kf.B(0,0) = dt;
+    kf.B(1,0) = 0.0f;
+
+    kf.C(0,0) = 1.0f;  kf.C(0,1) = 0.0f;
+
+    // 调整这些参数
+    kf.Q(0,0) = 0.001f;  kf.Q(1,1) = 0.003f;
+    kf.R(0,0) = 0.03f;
+
+    kf.P = Mat<2,2>::identity() * 1.0f;
+
+    // 在 ISR 中：
+    Mat<1,1> u;  u(0,0) = gyro_rate;
+    Mat<1,1> z;  z(0,0) = accel_angle;
+    kf.step(u, z);
+    float estimated_angle = kf.x(0, 0);
+    float estimated_bias  = kf.x(1, 0);
+\end{verbatim}
+
+\subsection{LQR 增益（离线计算辅助工具）}
+
+LQR 增益计算需要求解 Riccati 方程，通常在 MATLAB/Python 中\textit{离线}完成。本模块在运行时应用预计算得到的增益矩阵 $K$。
+
+\begin{verbatim}
+// lqr.hpp
+#pragma once
+#include "mat.hpp"
+
+template<int N_STATE, int N_INPUT>
+class LQRController {
+public:
+    using StateVec = Mat<N_STATE, 1>;
+    using InputVec = Mat<N_INPUT, 1>;
+    using GainMat  = Mat<N_INPUT, N_STATE>;
+
+    GainMat K;  // 由 MATLAB 计算后填入：K = lqr(A, B, Q, R)
+
+    /// 计算最优控制输入：u = -K * (x - x_ref)
+    InputVec compute(const StateVec& x, const StateVec& x_ref) const {
+        StateVec error = x - x_ref;
+        return (K * error) * (-1.0f);
+    }
+
+    /// 计算调节控制输入（x_ref = 0）
+    InputVec compute(const StateVec& x) const {
+        return (K * x) * (-1.0f);
+    }
+};
+\end{verbatim}
+
+\textbf{用法——平衡小车：}
+\begin{verbatim}
+    // 增益离线计算：K = lqr(A, B, diag([100,1,10,1]), 1)
+    LQRController<4, 1> lqr;
+    lqr.K(0,0) = -31.62f;  // 角度增益
+    lqr.K(0,1) = -5.27f;   // 角速度增益
+    lqr.K(0,2) = -3.16f;   // 位置增益
+    lqr.K(0,3) = -4.12f;   // 速度增益
+
+    // 在 ISR 中（状态来自卡尔曼滤波器）：
+    Mat<4,1> state;
+    state(0,0) = kf.x(0,0);  // 角度
+    state(1,0) = kf.x(1,0);  // 角速度
+    state(2,0) = encoder_pos;
+    state(3,0) = encoder_vel;
+
+    auto u = lqr.compute(state);
+    set_motor_torque(u(0,0));
+\end{verbatim}
+
+\subsection{串级 PID（Cascaded PID）}
+
+双环串级控制器（外环位置 + 内环速度），与云台案例研究中描述的结构一致。
+
+\begin{verbatim}
+// cascaded_pid.hpp
+#pragma once
+#include "pid.hpp"
+
+class CascadedPID {
+public:
+    PID outer;   // 位置环（较慢）
+    PID inner;   // 速度环（较快）
+
+    struct Config {
+        PIDConfig outer_cfg;
+        PIDConfig inner_cfg;
+        float ff_gain = 0.0f;  // 速度前馈增益
+    };
+
+    void configure(const Config& cfg) {
+        outer.configure(cfg.outer_cfg);
+        inner.configure(cfg.inner_cfg);
+        ff_gain_ = cfg.ff_gain;
+    }
+
+    /// 串级完整更新
+    /// pos_setpoint: 期望位置
+    /// pos_measured: 实测位置
+    /// vel_measured: 实测速度
+    /// vel_feedforward: 前馈参考速度（可选）
+    float update(float pos_setpoint, float pos_measured,
+                 float vel_measured, float vel_feedforward = 0.0f) {
+        // 外环：位置 -> 速度指令
+        float vel_cmd = outer.update(pos_setpoint, pos_measured)
+                      + ff_gain_ * vel_feedforward;
+
+        // 内环：速度 -> 力矩/电流指令
+        float output = inner.update(vel_cmd, vel_measured);
+        return output;
+    }
+
+    void reset() { outer.reset(); inner.reset(); }
+
+private:
+    float ff_gain_ = 0.0f;
+};
+\end{verbatim}
+
+\textbf{用法——云台 Yaw 轴：}
+\begin{verbatim}
+    CascadedPID::Config cfg;
+    // 外环（200 Hz）
+    cfg.outer_cfg = {.kp=8.0f, .ki=0.0f, .kd=0.0f, .dt=0.005f,
+                     .out_min=-300.0f, .out_max=300.0f};
+    // 内环（1 kHz）
+    cfg.inner_cfg = {.kp=20.0f, .ki=1.0f, .kd=0.0f, .dt=0.001f,
+                     .out_min=-30000.0f, .out_max=30000.0f,
+                     .integral_max=10000.0f};
+    cfg.ff_gain = 1.0f;
+
+    CascadedPID gimbal;
+    gimbal.configure(cfg);
+
+    // 内环 ISR（1 kHz）——仅更新内环
+    float torque = gimbal.inner.update(vel_cmd_cached, gyro_yaw);
+
+    // 外环 ISR（200 Hz）——同时更新双环
+    float torque = gimbal.update(target_angle, encoder_yaw,
+                                 gyro_yaw, ref_velocity);
+\end{verbatim}
+
+\subsection{高级 PID（积分分离 + PI-D + 2自由度）}
+
+在基础 PID 的基础上增加了第 4.5 节中所有改进特性。
+
+\begin{verbatim}
+// pid_advanced.hpp
+#pragma once
+#include <cmath>
+
+struct AdvancedPIDConfig {
+    float kp = 0.0f, ki = 0.0f, kd = 0.0f;
+    float dt = 0.001f;
+    float out_min = -1e6f, out_max = 1e6f;
+    float integral_max = 1e6f;
+    float d_filter_N = 10.0f;     // 微分低通滤波系数
+    float setpoint_weight_b = 1.0f; // P 给定值权重（0-1）
+    float setpoint_weight_c = 0.0f; // D 给定值权重（0=PI-D，1=PID）
+    float integral_sep_eps = 0.0f;  // 0 = 禁用，>0 = 误差阈值
+};
+
+class AdvancedPID {
+public:
+    AdvancedPID() = default;
+    explicit AdvancedPID(const AdvancedPIDConfig& c) : cfg_(c) {}
+    void configure(const AdvancedPIDConfig& c) { cfg_ = c; }
+
+    float update(float setpoint, float measurement) {
+        float error = setpoint - measurement;
+
+        // --- 带给定值加权的比例项（2 自由度）---
+        float p_term = cfg_.kp * (cfg_.setpoint_weight_b * setpoint
+                                  - measurement);
+
+        // --- 带积分分离的积分项 ---
+        if (cfg_.integral_sep_eps <= 0.0f
+            || fabsf(error) < cfg_.integral_sep_eps) {
+            integral_ += cfg_.ki * error * cfg_.dt;
+        }
+        // 抗积分饱和：反计算
+        integral_ += anti_windup_;
+        integral_ = clamp(integral_, -cfg_.integral_max,
+                          cfg_.integral_max);
+
+        // --- 带给定值加权 + 滤波微分的微分项 ---
+        float d_input = cfg_.setpoint_weight_c * setpoint - measurement;
+        float d_raw = -(d_input - d_prev_) / cfg_.dt;
+        float alpha = cfg_.dt * cfg_.d_filter_N
+                    / (1.0f + cfg_.dt * cfg_.d_filter_N);
+        d_filtered_ = alpha * d_raw + (1.0f - alpha) * d_filtered_;
+        float d_term = cfg_.kd * d_filtered_;
+        d_prev_ = d_input;
+
+        // --- 输出 ---
+        float raw = p_term + integral_ + d_term;
+        float out = clamp(raw, cfg_.out_min, cfg_.out_max);
+
+        // 反计算抗积分饱和
+        anti_windup_ = (cfg_.ki != 0.0f)
+            ? (out - raw) / cfg_.ki * cfg_.dt * 0.5f
+            : 0.0f;
+        return out;
+    }
+
+    void reset() {
+        integral_ = 0; d_filtered_ = 0; d_prev_ = 0; anti_windup_ = 0;
+    }
+
+private:
+    AdvancedPIDConfig cfg_;
+    float integral_ = 0, d_filtered_ = 0, d_prev_ = 0, anti_windup_ = 0;
+    static float clamp(float v, float lo, float hi) {
+        return v < lo ? lo : (v > hi ? hi : v);
+    }
+};
+\end{verbatim}
+
+\textbf{用法示例：}
+\begin{verbatim}
+    // 标准 PID（与 pid.hpp 相同）
+    AdvancedPIDConfig cfg;
+    cfg.kp=6; cfg.ki=0.3; cfg.kd=3; cfg.dt=0.001f;
+
+    // PI-D（微分作用于测量值，避免微分冲击）
+    cfg.setpoint_weight_c = 0.0f;  // 微分仅作用于测量值
+
+    // I-PD（P 和 D 均作用于测量值）
+    cfg.setpoint_weight_b = 0.0f;  // 比例仅作用于测量值
+    cfg.setpoint_weight_c = 0.0f;  // 微分仅作用于测量值
+
+    // 2 自由度：软化给定值响应，保持扰动抑制能力
+    cfg.setpoint_weight_b = 0.7f;  // 减小给定值超调
+    cfg.setpoint_weight_c = 0.0f;  // 无微分冲击
+
+    // 积分分离：仅在接近目标时积分
+    cfg.integral_sep_eps = 5.0f;   // 误差阈值（度）
+\end{verbatim}
+
+\subsection{6自由度 IMU 扩展卡尔曼滤波器（EKF for 6-DOF IMU，姿态估计）}
+
+即用型 EKF，从 6 轴 IMU 估计横滚角、俯仰角、偏航角及陀螺仪偏置。
+
+\begin{verbatim}
+// ekf_imu.hpp — 基于 EKF 的 6 自由度 IMU 姿态估计
+// 状态：[roll, pitch, yaw, bias_gx, bias_gy, bias_gz]
+// 测量：加速度计 -> 横滚角、俯仰角
+// 来源：控制理论实践指南
+// 许可证：MIT
+#pragma once
+#include "mat.hpp"
+#include <cmath>
+
+class EKF_IMU {
+public:
+    static constexpr int NX = 6;  // 状态数
+    static constexpr int NZ = 2;  // 测量数（由加速度计得到的横滚角、俯仰角）
+
+    using State  = Mat<NX, 1>;
+    using Cov    = Mat<NX, NX>;
+    using MeasV  = Mat<NZ, 1>;
+    using MeasC  = Mat<NZ, NZ>;
+    using KGain  = Mat<NX, NZ>;
+    using Hmtx   = Mat<NZ, NX>;
+
+    State x;   // [roll, pitch, yaw, bx, by, bz]
+    Cov   P;
+
+    Cov   Q;   // 过程噪声协方差
+    MeasC R;   // 测量噪声协方差
+
+    float dt = 0.001f;  // 采样周期
+
+    void init() {
+        x = State::zeros();
+        P = Cov::identity() * 0.1f;
+        // 默认值（根据你的 IMU 进行调整）
+        Q = Cov::zeros();
+        Q(0,0)=0.001f; Q(1,1)=0.001f; Q(2,2)=0.001f;
+        Q(3,3)=0.0001f; Q(4,4)=0.0001f; Q(5,5)=0.0001f;
+        R(0,0) = 0.15f; R(1,1) = 0.15f;
+    }
+
+    /// 主更新函数，以 IMU 采样频率调用
+    /// gx,gy,gz: 陀螺仪读数（rad/s）
+    /// ax,ay,az: 加速度计读数（m/s^2）
+    void update(float gx, float gy, float gz,
+                float ax, float ay, float az) {
+        // === 预测步骤 ===
+        float phi = x(0,0), theta = x(1,0);
+        float wx = gx - x(3,0), wy = gy - x(4,0), wz = gz - x(5,0);
+
+        float sp = sinf(phi), cp = cosf(phi);
+        float tt = tanf(theta), ct = cosf(theta);
+
+        // 欧拉运动学
+        float phi_dot   = wx + sp*tt*wy + cp*tt*wz;
+        float theta_dot = cp*wy - sp*wz;
+        float psi_dot   = (sp/ct)*wy + (cp/ct)*wz;
+
+        // 预测状态
+        State xp = x;
+        xp(0,0) += phi_dot * dt;
+        xp(1,0) += theta_dot * dt;
+        xp(2,0) += psi_dot * dt;
+
+        // 雅可比矩阵 F（6x6）
+        Cov F = Cov::identity();
+        F(0,0) += (cp*tt*wy - sp*tt*wz)*dt;
+        F(0,1)  = (sp/(ct*ct)*wy + cp/(ct*ct)*wz)*dt;
+        F(0,3) = -dt;  F(0,4) = -sp*tt*dt;  F(0,5) = -cp*tt*dt;
+        F(1,0)  = (-sp*wy - cp*wz)*dt;
+        F(1,4) = -cp*dt;  F(1,5) = sp*dt;
+        F(2,0)  = (cp/ct*wy - sp/ct*wz)*dt;
+        float st = sinf(theta);
+        F(2,1)  = (sp*st/(ct*ct)*wy + cp*st/(ct*ct)*wz)*dt;
+        F(2,4) = -sp/ct*dt;  F(2,5) = -cp/ct*dt;
+
+        Cov Pp = F * P * F.T() + Q;
+
+        // === 更新步骤（加速度计 -> 横滚角、俯仰角）===
+        float z_roll  = atan2f(ay, az);
+        float z_pitch = atan2f(-ax, sqrtf(ay*ay + az*az));
+
+        MeasV z;  z(0,0) = z_roll;  z(1,0) = z_pitch;
+        MeasV h;  h(0,0) = xp(0,0); h(1,0) = xp(1,0);
+
+        MeasV innov;
+        innov(0,0) = wrap_pi(z(0,0) - h(0,0));
+        innov(1,0) = wrap_pi(z(1,0) - h(1,0));
+
+        // H = [1 0 0 0 0 0; 0 1 0 0 0 0]
+        Hmtx H = Hmtx::zeros();
+        H(0,0) = 1.0f; H(1,1) = 1.0f;
+
+        MeasC S = H * Pp * H.T() + R;
+        KGain Kk = Pp * H.T() * S.inverse();
+
+        x = xp + Kk * innov;
+        P = (Cov::identity() - Kk * H) * Pp;
+    }
+
+    float roll()  const { return x(0,0); }
+    float pitch() const { return x(1,0); }
+    float yaw()   const { return x(2,0); }
+    float bias_x() const { return x(3,0); }
+    float bias_y() const { return x(4,0); }
+    float bias_z() const { return x(5,0); }
+
+private:
+    static float wrap_pi(float a) {
+        while (a >  3.14159265f) a -= 6.28318530f;
+        while (a < -3.14159265f) a += 6.28318530f;
+        return a;
+    }
+};
+\end{verbatim}
+
+\textbf{用法（Usage）：}
+\begin{verbatim}
+    EKF_IMU ekf;
+    ekf.dt = 0.002f;  // IMU 采样频率 500 Hz
+    ekf.init();
+
+    // 针对你的 IMU 进行调参（MPU6050 示例）：
+    ekf.Q(0,0) = 0.001f;  ekf.Q(1,1) = 0.001f;  ekf.Q(2,2) = 0.001f;
+    ekf.Q(3,3) = 1e-5f;   ekf.Q(4,4) = 1e-5f;   ekf.Q(5,5) = 1e-5f;
+    ekf.R(0,0) = 0.1f;    ekf.R(1,1) = 0.1f;
+
+    // 在 IMU 中断中（500 Hz）：
+    ekf.update(gyro_x, gyro_y, gyro_z, accel_x, accel_y, accel_z);
+
+    float roll_deg  = ekf.roll()  * 180.0f / M_PI;
+    float pitch_deg = ekf.pitch() * 180.0f / M_PI;
+    float yaw_deg   = ekf.yaw()   * 180.0f / M_PI;
+\end{verbatim}
+
+\subsection{TinyMPC 求解器（TinyMPC Solver）}
+
+基于 Riccati 方法的最小化嵌入式 MPC 求解器（参见第 6 节理论部分）。可在微控制器上实时求解带盒式约束的 LQR 问题，基于 TinyMPC（Nguyen 等，2024）。
+
+\begin{verbatim}
+// tiny_mpc.hpp — 适用于嵌入式系统的基于 Riccati 的 MPC
+// 基于：TinyMPC（Nguyen et al., 2024）
+// 离线预计算 Riccati 递推，在线用 ADMM 求解。
+#pragma once
+#include "mat.hpp"
+
+template<int NX, int NU, int N_HORIZON>
+class TinyMPC {
+public:
+    using StateVec = Mat<NX, 1>;
+    using InputVec = Mat<NU, 1>;
+    using StateMat = Mat<NX, NX>;
+    using InputMat = Mat<NX, NU>;
+    using GainMat  = Mat<NU, NX>;
+
+    // 系统模型（离散）
+    StateMat Ad;
+    InputMat Bd;
+
+    // 代价矩阵
+    StateMat Q;          // 状态代价
+    Mat<NU,NU> R;        // 输入代价
+    StateMat Q_terminal; // 终端代价（设为 DARE 解）
+
+    // 约束
+    InputVec u_min, u_max;
+    StateVec x_min, x_max;
+
+    // ADMM 参数
+    float rho = 1.0f;        // 惩罚参数
+    int   max_iter = 10;      // ADMM 迭代次数（典型值 5-20）
+
+    // 预计算的 Riccati 增益（离线调用 precompute() 一次）
+    GainMat  K_gains[N_HORIZON];    // 反馈增益
+    StateMat P_mats[N_HORIZON + 1]; // 代价函数矩阵
+
+    /// 预计算 Riccati 递推（调用一次，或在模型变化时重新调用）
+    void precompute() {
+        P_mats[N_HORIZON] = Q_terminal;
+        for (int k = N_HORIZON - 1; k >= 0; --k) {
+            // P = Q + A'*P_next*A - A'*P_next*B*(R+B'*P_next*B)^-1
+            //     * B'*P_next*A
+            auto P_next = P_mats[k + 1];
+            auto BtP = Bd.T() * P_next;
+            auto S = R + BtP * Bd;  // NU x NU
+            auto S_inv = S.inverse();
+            K_gains[k] = S_inv * BtP * Ad;  // NU x NX
+            auto AtP = Ad.T() * P_next;
+            P_mats[k] = Q + AtP * Ad - AtP * Bd * K_gains[k];
+        }
+    }
+
+    /// 针对当前状态求解 MPC，返回最优首步输入
+    InputVec solve(const StateVec& x0,
+                   const StateVec x_ref[N_HORIZON]) {
+        // 用无约束 LQR 展开初始化
+        StateVec x_traj[N_HORIZON + 1];
+        InputVec u_traj[N_HORIZON];
+        x_traj[0] = x0;
+
+        for (int k = 0; k < N_HORIZON; ++k) {
+            StateVec dx = x_traj[k] - x_ref[k];
+            u_traj[k] = (K_gains[k] * dx) * (-1.0f);
+            // 截断（投影步骤）
+            for (int i = 0; i < NU; ++i) {
+                float v = u_traj[k](i, 0);
+                v = v < u_min(i,0) ? u_min(i,0) :
+                    (v > u_max(i,0) ? u_max(i,0) : v);
+                u_traj[k](i, 0) = v;
+            }
+            x_traj[k + 1] = Ad * x_traj[k] + Bd * u_traj[k];
+        }
+
+        // ADMM 精化以满足约束
+        InputVec z[N_HORIZON];      // 松弛变量
+        InputVec lambda[N_HORIZON]; // 对偶变量
+        for (int k = 0; k < N_HORIZON; ++k) {
+            z[k] = u_traj[k];
+            lambda[k] = InputVec::zeros();
+        }
+
+        for (int iter = 0; iter < max_iter; ++iter) {
+            // 前向传播：带惩罚的无约束求解
+            x_traj[0] = x0;
+            for (int k = 0; k < N_HORIZON; ++k) {
+                StateVec dx = x_traj[k] - x_ref[k];
+                // 含 ADMM 惩罚的改进 Riccati
+                InputVec u_unc = (K_gains[k] * dx) * (-1.0f);
+                // ADMM 修正
+                u_traj[k] = u_unc + (z[k] - lambda[k]) * (rho * 0.5f);
+                x_traj[k+1] = Ad * x_traj[k] + Bd * u_traj[k];
+            }
+            // z 更新：投影到约束集
+            for (int k = 0; k < N_HORIZON; ++k) {
+                for (int i = 0; i < NU; ++i) {
+                    float v = u_traj[k](i,0) + lambda[k](i,0);
+                    v = v < u_min(i,0) ? u_min(i,0) :
+                        (v > u_max(i,0) ? u_max(i,0) : v);
+                    z[k](i, 0) = v;
+                }
+            }
+            // 对偶变量更新
+            for (int k = 0; k < N_HORIZON; ++k) {
+                lambda[k] = lambda[k] + u_traj[k] - z[k];
+            }
+        }
+        return u_traj[0];
+    }
+};
+\end{verbatim}
+
+\textbf{用法——底盘轨迹跟踪：}
+\begin{verbatim}
+    // 二维位置控制：状态=[x,y,vx,vy]，输入=[ax,ay]
+    TinyMPC<4, 2, 10> mpc;  // 4 状态，2 输入，预测步长=10
+    float dt = 0.01f;
+
+    // 离散双积分器模型
+    mpc.Ad = Mat<4,4>::identity();
+    mpc.Ad(0,2) = dt; mpc.Ad(1,3) = dt;
+    mpc.Bd(2,0) = dt; mpc.Bd(3,1) = dt;
+
+    // 代价权重
+    mpc.Q = Mat<4,4>::identity() * 10.0f;
+    mpc.R = Mat<2,2>::identity() * 1.0f;
+    mpc.Q_terminal = Mat<4,4>::identity() * 100.0f;
+
+    // 约束：最大加速度 5 m/s^2
+    mpc.u_min(0,0) = -5; mpc.u_min(1,0) = -5;
+    mpc.u_max(0,0) =  5; mpc.u_max(1,0) =  5;
+
+    mpc.precompute();  // 启动时调用一次
+
+    // 在控制循环中：
+    Mat<4,1> x_ref[10];  // 由路径规划器填充
+    auto u = mpc.solve(current_state, x_ref);
+    set_accel(u(0,0), u(1,0));
+\end{verbatim}
+
+\subsection{模块依赖关系图（Module Dependency Map）}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{模块} & \textbf{文件} & \textbf{依赖} \\
+\midrule
+低通滤波器 & \texttt{lpf.hpp} & （无） \\
+PID 控制器 & \texttt{pid.hpp} & （无） \\
+高级 PID & \texttt{pid\_advanced.hpp} & （无） \\
+给定值斜坡 & \texttt{ramp.hpp} & \texttt{lpf.hpp} \\
+互补滤波器 & \texttt{complementary\_filter.hpp} & （无） \\
+矩阵库 & \texttt{mat.hpp} & （无） \\
+卡尔曼滤波器 & \texttt{kalman.hpp} & \texttt{mat.hpp} \\
+EKF IMU（6自由度） & \texttt{ekf\_imu.hpp} & \texttt{mat.hpp} \\
+LQR 控制器 & \texttt{lqr.hpp} & \texttt{mat.hpp} \\
+TinyMPC 求解器 & \texttt{tiny\_mpc.hpp} & \texttt{mat.hpp} \\
+串级 PID & \texttt{cascaded\_pid.hpp} & \texttt{pid.hpp} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+所有模块均采用 MIT 许可证。将其复制到项目的 \texttt{include/control/} 目录下，\texttt{\#include} 后即可使用。
+
+\newpage
+
+\vspace{1em}
+\hrule
+\vspace{1em}
+
+\section*{结语}
+
+如果你已读到这里，恭喜——你已经为设计竞赛机器人的控制系统打下了坚实的理论基础。以下是一张速查表，供你在不同场景下快速选用合适的工具：
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{场景} & \textbf{工具} \\
+\midrule
+传感器数据噪声大 & 低通滤波器（第 2 节） \\
+电机实际特性是什么？ & 电机建模（第 3 节） \\
+单电机转速/位置控制 & PID（第 4 节） \\
+云台跟踪 & PID + 前馈（第 4 节） \\
+平滑点对点运动 & 轨迹生成（第 4 节） \\
+将 PID 从纸面移植到 MCU & Tustin 离散化（第 5 节） \\
+平衡小车 / MIMO 系统 & LQR（第 6 节） \\
+带约束的轨迹跟踪 & MPC（第 6 节） \\
+噪声传感器的状态估计 & 卡尔曼滤波器（第 6 节） \\
+IMU + 编码器融合 & 扩展卡尔曼滤波器（第 6 节） \\
+机器人翻转/翻滚超过 $\pm 90$\textdegree{} & 四元数 EKF（第 6 节） \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+请记住：理论是工具，而非目的。\textbf{最好的控制器是能在赛场上正常运行的那一个}，而不是在纸上看起来最优雅的那一个。从简单的方法（PID）开始，理解你的系统，只在必要时增加复杂度，并且始终、始终在真实硬件上进行测试。
+
+祝你在下次比赛中好运。去造出令人惊叹的东西吧。
+
+\end{document}

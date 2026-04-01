@@ -1,0 +1,419 @@
+%=============================================================================
+\section{系统描述}
+%=============================================================================
+
+在你能控制某样东西之前，你需要先理解它\textit{做什么}。系统（System）是任何接受输入并产生输出的事物。你的直流有刷电机接受电压，输出角速度；你的底盘接受轮速，输出运动轨迹；你的云台接受电机力矩，输出角度。
+
+控制工程的艺术，始于将这些输入-输出关系写成数学描述。这一过程称为\textbf{建模（Modeling）}，它既是整个流程中最重要的步骤，也是最容易被低估的步骤。
+
+\textbf{一句忠告：}一个平庸的控制器用在好模型上，永远胜过一个完美的控制器用在差模型上。请花时间真正理解你的系统。
+
+我们将系统分为\textbf{SISO}（单输入单输出，Single-Input Single-Output）和\textbf{MIMO}（多输入多输出，Multiple-Input Multiple-Output）。单个电机是 SISO；带四个轮子的全向底盘是 MIMO。我们先从 SISO 开始，因为它更简单，之后再推广到更一般的情形。
+
+\subsection{系统的数学模型}
+
+描述系统的数学方法主要有三种，各有其优势。
+
+\subsubsection{微分方程（Differential Equations）}
+
+最基础的描述方式。我们利用物理定律（牛顿定律、基尔霍夫定律等）写出输入、输出及其各阶导数之间的方程。
+
+\textbf{示例：直流有刷电机}
+
+直流有刷电机是机器人竞赛中最常见的执行器。以下是其简化模型：
+
+电气方程（基尔霍夫电压定律）：
+\begin{equation}
+V = L \frac{di}{dt} + Ri + K_e \omega
+\end{equation}
+
+机械方程（旋转运动的牛顿第二定律）：
+\begin{equation}
+J \frac{d\omega}{dt} = K_t i - b\omega - \tau_{\text{load}}
+\end{equation}
+
+其中：
+\begin{itemize}[nosep]
+    \item $V$：输入电压，$i$：电枢电流
+    \item $L$：电感，$R$：电阻
+    \item $K_e$：反电动势常数，$K_t$：力矩常数
+    \item $J$：转动惯量，$b$：粘性摩擦系数
+    \item $\omega$：角速度，$\tau_{\text{load}}$：负载力矩
+\end{itemize}
+
+这是两个耦合的一阶微分方程。在实际中，电气动态（$L \frac{di}{dt}$）比机械动态快得多，因此我们常令 $L \approx 0$ 来简化，得到：
+\begin{equation}
+J \frac{d\omega}{dt} = \frac{K_t}{R}(V - K_e \omega) - b\omega - \tau_{\text{load}}
+\end{equation}
+
+这是一个将输入电压 $V$ 与输出转速 $\omega$ 关联起来的一阶常微分方程，有了它我们就可以分析和控制系统了。
+
+\subsubsection{传递函数（Transfer Functions）}
+
+对微分方程取拉普拉斯变换（假设零初始条件），即可得到\textbf{传递函数（Transfer Function）}：输出与输入在 $s$ 域中的比值。
+
+对于简化后的直流有刷电机：
+\begin{equation}
+G(s) = \frac{\Omega(s)}{V(s)} = \frac{K_t / R}{Js + (b + K_t K_e / R)}
+\end{equation}
+
+可改写为标准一阶形式：
+\begin{equation}
+G(s) = \frac{K}{\tau s + 1}
+\end{equation}
+
+其中 $K$ 是直流增益（每伏特对应的稳态转速），$\tau$ 是时间常数（电机达到稳态的速度）。
+
+\textbf{传递函数的优点：}
+\begin{itemize}
+    \item 形式紧凑——一个分式描述整个系统。
+    \item 级联系统只需相乘：$G_{\text{total}}(s) = G_1(s) \cdot G_2(s)$。
+    \item 稳定性分析直观：检查分母的根（极点）即可。
+    \item 令 $s = j\omega$ 即可得到频率响应。
+\end{itemize}
+
+\textbf{传递函数的局限：}
+\begin{itemize}
+    \item 仅适用于线性时不变（LTI）系统。
+    \item 假设零初始条件。
+    \item 天然是 SISO 的——推广到 MIMO 需要传递函数矩阵，处理起来很繁琐。
+    \item 隐藏了系统的内部状态。
+\end{itemize}
+
+\subsubsection{状态空间表示（State-Space Representation）}
+
+状态空间表示将系统描述为一组矩阵形式的一阶微分方程：
+
+\begin{align}
+\dot{\mathbf{x}} &= A\mathbf{x} + B\mathbf{u} \quad \text{（状态方程）} \\
+\mathbf{y} &= C\mathbf{x} + D\mathbf{u} \quad \text{（输出方程）}
+\end{align}
+
+其中：
+\begin{itemize}[nosep]
+    \item $\mathbf{x}$：状态向量（描述系统当前状况的内部变量）
+    \item $\mathbf{u}$：输入向量
+    \item $\mathbf{y}$：输出向量
+    \item $A$：系统矩阵，$B$：输入矩阵，$C$：输出矩阵，$D$：直通矩阵
+\end{itemize}
+
+\textbf{各矩阵的物理含义：}
+\begin{itemize}
+    \item $A$（系统/动态矩阵）：描述状态在无输入时如何自发演化。若断开电机（$\mathbf{u} = 0$），系统按 $\dot{\mathbf{x}} = A\mathbf{x}$ 演化。$A$ 的特征值决定了系统的自然行为：稳定衰减、振荡或发散。元素 $A_{ij}$ 表示状态 $j$ 对状态 $i$ 变化率的影响。
+    \item $B$（输入矩阵）：描述输入如何影响各状态。元素 $B_{ij}$ 表示输入 $j$ 对状态 $i$ 变化率的影响。若 $B$ 的某一行全为零，则该状态无法被任何输入直接驱动——只能通过 $A$ 中的耦合间接影响。
+    \item $C$（输出矩阵）：描述哪些状态可被测量。元素 $C_{ij}$ 表示状态 $j$ 对测量量 $i$ 的贡献。若 $C = [1\;0\;\ldots\;0]$，则只测量第一个状态。
+    \item $D$（直通矩阵）：描述输入绕过动态环节直接影响输出的路径。大多数物理系统中 $D = 0$，因为输入必须经过动态环节才能影响输出。当存在从输入到输出的直接代数通路时（例如纯电阻分压器），$D \neq 0$。
+\end{itemize}
+
+\textbf{示例：直流有刷电机的状态空间表示}
+
+选取状态 $\mathbf{x} = \begin{bmatrix} \omega \\ i \end{bmatrix}$（角速度和电枢电流）：
+
+\begin{equation}
+\begin{bmatrix} \dot{\omega} \\ \dot{i} \end{bmatrix} =
+\begin{bmatrix} -b/J & K_t/J \\ -K_e/L & -R/L \end{bmatrix}
+\begin{bmatrix} \omega \\ i \end{bmatrix} +
+\begin{bmatrix} 0 \\ 1/L \end{bmatrix} V
+\end{equation}
+
+\begin{equation}
+y = \begin{bmatrix} 1 & 0 \end{bmatrix} \begin{bmatrix} \omega \\ i \end{bmatrix}
+\end{equation}
+
+\textbf{状态空间的强大之处：}
+\begin{itemize}
+    \item 天然处理 MIMO 系统——只需把矩阵扩大即可。
+    \item 暴露内部状态，便于我们进行状态估计（观测器）和状态反馈控制。
+    \item 与现代控制技术（LQR、MPC、卡尔曼滤波）无缝衔接。
+    \item 易于推广到非线性系统（将 $A\mathbf{x}$ 替换为 $f(\mathbf{x})$）。
+\end{itemize}
+
+\textbf{权衡：}状态空间更强大，但也更抽象。传递函数对 SISO 系统有更好的物理直觉。优秀的工程师对两种方法都应得心应手。
+
+\subsection{基于传递函数的系统分析}
+
+给定传递函数 $G(s)$，我们可以提取出系统的大量信息。
+
+\textbf{极点与零点。}将 $G(s) = \frac{N(s)}{D(s)}$，$N(s)$ 的根称为\textbf{零点（Zeros）}，$D(s)$ 的根称为\textbf{极点（Poles）}。
+
+\begin{itemize}
+    \item \textbf{极点决定稳定性。}若所有极点的实部均为负（即位于复平面左半部分），系统稳定。若任何极点实部为正，系统不稳定，将发散。极点在虚轴上意味着系统临界稳定（持续振荡）。
+    \item \textbf{极点决定响应速度。}极点越靠左，动态越快。\textit{主导极点}（最靠近虚轴的极点）决定系统的整体响应速度。
+    \item \textbf{复数极点意味着振荡。}一对共轭复数极点 $s = -\sigma \pm j\omega_d$ 产生振荡行为。实部 $\sigma$ 决定振荡衰减的速度，虚部 $\omega_d$ 决定振荡频率。
+    \item \textbf{零点塑造响应。}零点可以抵消极点、改变瞬态响应，或导致非最小相位行为（系统先朝错误方向运动）。
+\end{itemize}
+
+\textbf{快速判断系统阶数的技巧：数积分次数。}在深入数学之前，先介绍一个直观的判断方法。系统的阶数等于从输入变量到输出变量在物理意义上需要经过的积分次数。以电压控制的直流有刷电机为例：
+\begin{itemize}[nosep]
+    \item 电压 $\to$ 电流（通过电感的一次积分：$L\frac{di}{dt} = V - \ldots$）$\to$ 第一个积分器。
+    \item 电流 $\to$ 角速度（通过惯量的一次积分：$J\frac{d\omega}{dt} = K_t i - \ldots$）$\to$ 第二个积分器。
+\end{itemize}
+从电压到角速度经过两次积分 $\Rightarrow$ 二阶系统。若令 $L \approx 0$（电流瞬时响应），则去掉一次积分，变为一阶系统。若输出是\textit{位置}而非速度，则再增加一次积分（$\theta = \int \omega\,dt$），系统变为三阶（或在 $L \approx 0$ 简化下为二阶）。这一计数技巧适用于任何物理系统：弹簧、热系统、液位系统——数一数独立的储能元件（电感、电容、质量、弹簧），得到的就是系统阶数。
+
+\textbf{标准二阶系统。}许多物理系统可近似为：
+\begin{equation}
+G(s) = \frac{\omega_n^2}{s^2 + 2\zeta\omega_n s + \omega_n^2}
+\end{equation}
+
+其中 $\omega_n$ 是自然频率（Natural Frequency），$\zeta$ 是阻尼比（Damping Ratio）。阻尼比决定了瞬态响应的全部特征：
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+$\zeta$ & \textbf{行为} \\
+\midrule
+$\zeta > 1$ & 过阻尼：响应慢，无振荡 \\
+$\zeta = 1$ & 临界阻尼：最快的无振荡响应 \\
+$0 < \zeta < 1$ & 欠阻尼：振荡并衰减 \\
+$\zeta = 0$ & 无阻尼：持续振荡 \\
+$\zeta < 0$ & 不稳定：振荡发散 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+对于大多数机器人应用，$\zeta$ 取 0.5 到 0.8 之间最为合适——响应快，超调可接受。
+
+\textbf{欠阻尼情形（$0 < \zeta < 1$）的常用公式：}
+
+阶跃响应为：
+\begin{equation}
+y(t) = 1 - \frac{e^{-\zeta\omega_n t}}{\sqrt{1 - \zeta^2}} \sin\left(\omega_d t + \phi\right), \quad \omega_d = \omega_n\sqrt{1 - \zeta^2}, \quad \phi = \arccos(\zeta)
+\end{equation}
+
+其中 $\omega_d$ 是\textbf{阻尼自然频率（Damped Natural Frequency）}——系统实际振荡的频率（始终小于 $\omega_n$）。
+
+由此可推导出各性能指标的解析表达式：
+\begin{align}
+\text{超调量：} \quad M_p &= e^{-\pi\zeta / \sqrt{1-\zeta^2}} \times 100\% \\
+\text{峰值时间：} \quad t_p &= \frac{\pi}{\omega_d} = \frac{\pi}{\omega_n\sqrt{1-\zeta^2}} \\
+\text{调节时间（2\%）：} \quad t_s &\approx \frac{4}{\zeta\omega_n} \\
+\text{上升时间（近似）：} \quad t_r &\approx \frac{1.8}{\omega_n}
+\end{align}
+
+\textbf{这些公式告诉你什么：}
+\begin{itemize}
+    \item 超调量\textit{只}取决于 $\zeta$，与 $\omega_n$ 无关。更快的系统（$\omega_n$ 更大）超调百分比相同——只是发生得更快。
+    \item 调节时间取决于乘积 $\zeta\omega_n$——即极点的实部。更快的调节要求极点在复平面上更靠左。
+    \item 存在直接权衡：$\zeta$ 越小，上升时间越快但超调越大；$\zeta$ 越大，超调越小但响应越慢。
+    \item 取 $\zeta = 0.707$（即 $1/\sqrt{2}$）时：超调量 $\approx 4.3\%$，通常被称为速度与平稳性之间的``最优''阻尼。
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{second_order_response.pdf}
+\caption{不同阻尼比下的二阶系统阶跃响应。注意 $\zeta = 0.707$（蓝色曲线）在无明显超调的前提下上升最快——这是大多数控制应用的``甜蜜点''。}
+\end{figure}
+
+\vspace{0.5em}
+\begin{mdframed}[linewidth=1pt, innertopmargin=10pt, innerbottommargin=10pt]
+\textbf{案例分析：弹簧-质量-阻尼器——一个你能亲身感受的系统}
+
+\vspace{0.3em}
+在进入更抽象的内容之前，让我们用你亲身体验过的最简单二阶系统来建立直觉：汽车悬挂。
+
+汽车过坑就是教科书级的弹簧-质量-阻尼器：车身（质量 $m$）在悬挂弹簧（刚度 $k$）上弹跳，减震器（阻尼系数 $b$）负责耗散能量。
+
+\[
+m\ddot{x} + b\dot{x} + kx = F(t)
+\]
+
+传递函数：$G(s) = \frac{1}{ms^2 + bs + k} = \frac{1/m}{s^2 + \frac{b}{m}s + \frac{k}{m}}$
+
+自然频率：$\omega_n = \sqrt{k/m}$。\quad 阻尼比：$\zeta = \frac{b}{2\sqrt{km}}$。
+
+\textbf{现在用身体感受数学：}
+\begin{itemize}[nosep]
+    \item \textbf{没有减震器（$\zeta = 0$）：}过坑后永远弹跳不停。这是蹦床，不是汽车。无阻尼。
+    \item \textbf{减震器磨损（$\zeta = 0.2$）：}过坑后弹跳 5--6 次才平稳。乘客晕车。欠阻尼。
+    \item \textbf{良好减震器（$\zeta = 0.5$--$0.7$）：}过坑后轻微弹跳一两次，迅速稳定。舒适。这是甜蜜点。
+    \item \textbf{越野卡车减震器（$\zeta = 1$）：}过坑后缓慢回到中位，完全不弹跳。安全但偏硬。临界阻尼。
+    \item \textbf{减震器灌满混凝土（$\zeta = 3$）：}过坑后极慢才能回位。每一颗小石头都能感觉到。过阻尼。
+\end{itemize}
+
+\textbf{与你的机器人的联系：}你的云台、底盘、机械臂——它们都有自然频率和阻尼。当云台在阶跃指令后振荡，说明欠阻尼（$\zeta$ 太低）；当响应迟钝，说明过阻尼（$\zeta$ 太高）。PID 控制器（第 4 节）的本质，就是通过添加虚拟弹簧（P）、虚拟阻尼（D）和记忆（I）来\textit{改变系统的等效 $\zeta$ 和 $\omega_n$}。
+
+\textbf{为什么 $\omega_n$ 很重要：}质量大、电机弱的云台，$\omega_n$ 低——它在物理上就无法快速响应。再怎么调 PID，都无法让系统的响应速度超过其自然频率。如果你需要更快的速度，就需要更大的电机（增大 $k$）或更轻的负载（减小 $m$）。这正是硬件设计与控制设计必须携手并进的原因。
+\end{mdframed}
+
+\subsection{基于状态空间的系统分析}
+
+对于状态空间模型 $\dot{\mathbf{x}} = A\mathbf{x} + B\mathbf{u}$，系统行为由 \textbf{$A$ 的特征值}决定。
+
+这里有一个优美的联系：\textit{$A$ 的特征值恰好就是传递函数的极点。}因此，我们关于极点所说的一切在这里同样适用。特征值分析只是自然地推广到了传递函数处理起来很笨拙的 MIMO 系统。
+
+\textbf{矩阵指数（Matrix Exponential）。}状态空间系统的自由响应（无输入）为：
+\begin{equation}
+\mathbf{x}(t) = e^{At}\mathbf{x}(0)
+\end{equation}
+
+矩阵指数 $e^{At}$ 编码了所有动态信息。若对 $A$ 进行对角化（在可能的情况下），得到：
+\begin{equation}
+e^{At} = P \begin{bmatrix} e^{\lambda_1 t} & & \\ & \ddots & \\ & & e^{\lambda_n t} \end{bmatrix} P^{-1}
+\end{equation}
+
+每个特征值 $\lambda_i$ 贡献一个指数模态。实部为负的特征值衰减，实部为正的发散，复数特征值振荡。这是状态空间语言中``极点决定一切''的表达方式。
+
+\subsection{电机建模：最常见的被控对象}
+
+每个控制器都需要被控对象（Plant）模型。在机器人竞赛中，95\% 的被控对象都是电机。无论是驱动轮子、旋转飞轮还是控制炮塔，学会建立电机模型是在接触任何控制算法之前最有价值的技能。
+
+\subsubsection*{直流有刷电机模型}
+
+\textbf{直流有刷电机（DC Brushed Motor）}由两个耦合子系统组成：电气部分和机械部分。
+
+\textbf{电气动态}（电枢回路的 KVL）：
+\begin{equation}
+V = L\frac{di}{dt} + Ri + K_e\omega
+\end{equation}
+
+\textbf{机械动态}（转子的牛顿第二定律）：
+\begin{equation}
+J\frac{d\omega}{dt} = K_t i - b\omega - \tau_{\text{load}}
+\end{equation}
+
+其中 $V$ 为输入电压，$i$ 为电枢电流，$\omega$ 为角速度，$L$ 为电感，$R$ 为电阻，$K_e$ 为反电动势常数，$K_t$ 为力矩常数，$J$ 为转子转动惯量，$b$ 为粘性摩擦系数，$\tau_{\text{load}}$ 为外部负载力矩。
+
+取拉普拉斯变换（令 $\tau_{\text{load}} = 0$）并消去 $I(s)$，得到\textbf{完整的二阶传递函数}：
+\begin{equation}
+\frac{\Omega(s)}{V(s)} = \frac{K_t}{JLs^2 + (JR + bL)s + (bR + K_t K_e)}
+\end{equation}
+
+\textbf{一阶简化。}对于机器人竞赛中使用的大多数电机，电气时间常数 $\tau_e = L/R$ 在毫秒量级——远快于任何机械响应。令 $L \approx 0$，模型简化为更易处理的一阶系统：
+\begin{equation}
+\frac{\Omega(s)}{V(s)} = \frac{K_m}{\tau_m s + 1}
+\end{equation}
+
+其中\textbf{电机增益（Motor Gain）}和\textbf{机械时间常数（Mechanical Time Constant）}为：
+\begin{equation}
+K_m = \frac{K_t}{bR + K_t K_e}, \qquad \tau_m = \frac{JR}{bR + K_t K_e}
+\end{equation}
+
+这个一阶模型是你进行 PID 调参、前馈设计以及大多数实际工程工作时所用的模型。
+
+\vspace{0.5em}
+\begin{mdframed}[linewidth=1pt, innertopmargin=10pt, innerbottommargin=10pt]
+\textbf{深入理解时间常数 $\tau$}
+
+\vspace{0.3em}
+时间常数 $\tau$ 是控制理论中最基本也最常见的参数之一，然而初学者往往对其缺乏直观的认识。本节对此作详细阐释。
+
+\textbf{$\tau$ 的物理意义。}对于任意一阶系统 $G(s) = \frac{K}{\tau s + 1}$，其阶跃响应为：
+\[
+y(t) = K\left(1 - e^{-t/\tau}\right)
+\]
+
+在 $t = \tau$ 时，输出达到终值的 $1 - e^{-1} \approx 63.2\%$，即所谓``63\% 法则''。为何恰好是 63.2\%？原因在于一阶系统具有如下特性：\textit{任意时刻的变化速率与当前状态到目标之间的距离成正比。}在 $t = 0$ 时系统偏差最大，因而变化速率最快；随着逐渐趋近目标值，速率相应减缓。这一过程可类比为一名短跑运动员，起跑阶段全力加速，而随着接近终点逐渐放慢脚步。经过一个 $\tau$ 后，系统完成 63.2\% 的过渡；随后每经过一个 $\tau$，再完成\textit{剩余}距离的 63.2\%。具体数值如下表所示：
+
+\begin{center}
+\begin{tabular}{ccc}
+\toprule
+\textbf{时间} & \textbf{终值百分比} & \textbf{工程含义} \\
+\midrule
+$1\tau$ & 63.2\% & 过渡过程尚在进行，响应仍在明显变化 \\
+$2\tau$ & 86.5\% & 已接近终值，但仍有可观偏差 \\
+$3\tau$ & 95.0\% & 满足大多数工程场景的精度要求 \\
+$4\tau$ & 98.2\% & 进入 2\% 误差带，对应调节时间 $t_s$ \\
+$5\tau$ & 99.3\% & 可视为已达到稳态 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{物理类比：漏桶注水模型。}考虑一个底部开有小孔的水桶。桶空时无水压，注入的水全部留在桶中，水位上升最快。随着水位升高，底部水压增大，漏出量随之增加。最终，注入流量与漏出流量达到平衡，水位不再变化。从空桶到达平衡水位 63\% 所需的时间即为该系统的时间常数 $\tau$，其大小由桶的容积（对应惯量）和孔径（对应阻尼/摩擦）共同决定。
+
+电机系统的行为与此完全类似：输入电压驱动电流流入绕组，而反电动势与摩擦则阻碍转速的提升。机械时间常数 $\tau_m$ 刻画的正是电机转速从零过渡到稳态值的快慢。
+
+\textbf{$\tau$ 与其他关键参数的内在联系：}
+\begin{itemize}[nosep]
+    \item \textbf{调节时间：}$t_s \approx 4\tau$（2\% 准则）。以 $\tau_m = 50$~ms 的电机为例，其开环调节时间约为 200~ms。若此响应速度不能满足需求，则需要选用更大功率的电机或引入反馈控制器。
+    \item \textbf{带宽：}一阶系统的 $-3$~dB 带宽为 $\omega_{bw} = 1/\tau$。$\tau_m = 50$~ms 对应带宽 $20$~rad/s $\approx 3.2$~Hz，这意味着在开环条件下，该电机在物理上无法跟踪频率高于 3.2~Hz 的指令信号。
+    \item \textbf{极点位置：}$G(s) = K/(\tau s + 1)$ 的极点位于 $s = -1/\tau$。$\tau$ 越小，极点在 $s$ 平面上越偏左，系统动态响应越快。换言之，``更快的电机对应更小的时间常数''在传递函数语言中等价于``极点距虚轴更远''。
+    \item \textbf{采样率：}数字控制器的采样周期一般不应超过 $\tau/10$。对于 $\tau_m = 50$~ms 的系统，建议采样周期不大于 5~ms，即采样频率至少为 200~Hz。
+\end{itemize}
+
+\textbf{直流增益 $K$ 是时间常数的互补参数。}时间常数描述系统响应的\textit{速度}，而直流增益描述系统输出的\textit{幅值}。以电机为例，$K_m$ 表示单位电压对应的稳态转速。若 $K_m = 10$~rad/s/V，则 1~V 输入最终产生 10~rad/s 的转速。当应用场景要求 100~rad/s 时，至少需要 10~V 的驱动电压。值得注意的是，反馈控制器无法改变被控对象的直流增益，它只能改变系统到达稳态的速度。
+
+\textbf{电气时间常数与机械时间常数的分离。}电机实际上具有\textit{两个}时间常数：电气时间常数 $\tau_e = L/R$（通常在毫秒量级）与机械时间常数 $\tau_m = JR/(bR + K_tK_e)$（通常在 20--200~ms 量级）。由于 $\tau_e \ll \tau_m$，电气过渡过程在机械响应尚未显著变化之前便已基本完成。这正是将二阶电机模型简化为一阶模型的物理依据：当转速开始发生可观测变化时，电流早已达到其准稳态值。从传递函数的角度来看，快速的电气极点在 $s$ 平面上远离虚轴，对系统总体响应的贡献可以忽略——即该极点不构成\textit{主导极点（Dominant Pole）}。
+
+\textbf{主导极点近似。}当系统具有多个时间常数时，\textit{最大}的时间常数（即最靠近虚轴的极点）对系统响应起决定性作用。这一事实使得高阶系统往往可以用低阶模型进行有效近似——那些对应较小时间常数的快速极点仅在极短暂的初始阶段产生影响，随即迅速衰减。这并非是不严谨的简化，而是基于充分物理依据的合理近似，也是一阶模型在工程实践中广泛适用的根本原因。
+\end{mdframed}
+
+\subsubsection*{无刷电机与 FOC}
+
+\textbf{无刷直流电机（BLDC Motors，Brushless DC Motors）}是三相电机，但运行\textbf{磁场定向控制（FOC，Field Oriented Control）}的现代电调在内部处理了三相的复杂性。FOC 利用 Park 变换和 Clarke 变换将三相电流投影到旋转的 $d$-$q$ 参考系，从而在 $q$ 轴上等效出一台直流有刷电机。从控制器的角度看，电调暴露的是一台\emph{虚拟直流有刷电机}——输入电压（或电流），观测角速度，同样的传递函数直接适用，无需考虑换相问题。
+
+\vspace{0.5em}
+\begin{mdframed}[linewidth=1pt, innertopmargin=10pt, innerbottommargin=10pt]
+\textbf{理解 FOC：原理与意义}
+
+\vspace{0.3em}
+无刷电机有三组定子绕组，彼此间隔 120°。要驱动转子旋转，这三组绕组必须按特定序列通电，使磁场始终``拉着''转子前进。难点在于：所需电流是正弦的，且其相位取决于转子的角位置。同时控制三个随时间和位置变化的正弦信号，处理起来十分复杂。
+
+\textbf{FOC 的核心思想：通过坐标变换，将问题化为等效的直流有刷电机控制。}
+
+\textbf{第一步：Clarke 变换}（$abc \to \alpha\beta$）。将三相电流 $i_a, i_b, i_c$ 投影到固定的二维坐标系（$\alpha, \beta$）。由于 $i_a + i_b + i_c = 0$，一个变量是冗余的，可在不丢失信息的前提下降维。结果：三个正弦变为两个正弦。
+
+\textbf{第二步：Park 变换}（$\alpha\beta \to dq$）。利用实测转子角度 $\theta_e$，将固定坐标系旋转至与转子磁极对齐的\textbf{旋转参考系}。在该参考系下：
+\begin{itemize}[nosep]
+    \item $q$ 轴电流（$i_q$）产生力矩——与直流有刷电机中的电枢电流完全等效。
+    \item $d$ 轴电流（$i_d$）控制磁场强度。大多数应用中令 $i_d = 0$（无需弱磁或增磁）。
+\end{itemize}
+
+经过 Park 变换后，三个时变正弦量在稳态下变为两个\textit{常数}（$i_d$ 和 $i_q$）。控制常数比控制正弦容易得多——只需使用 PI 控制器。
+
+\textbf{第三步：$dq$ 轴 PI 控制。}两个简单的 PI 控制器：
+\begin{itemize}[nosep]
+    \item $d$ 轴 PI：保持 $i_d = 0$（或在高速弱磁时跟踪参考值）。
+    \item $q$ 轴 PI：跟踪期望力矩电流 $i_q^* = \tau_{\text{desired}} / K_t$。
+\end{itemize}
+
+\textbf{第四步：逆变换。}将 $dq$ 电压指令经逆 Park、逆 Clarke 变换还原为三相电压，通过 PWM 施加到电机绕组。
+
+\textbf{FOC 对机器人的意义：}
+\begin{itemize}[nosep]
+    \item \textbf{精确的力矩控制。}$i_q$ 直接决定力矩，因此 FOC 能够实现精确的力矩（即电流）控制——这对力控应用和低速平稳运行至关重要。
+    \item \textbf{最大效率。}令 $i_d = 0$，则所有电流都用于产生力矩，没有能量浪费在无用的磁场分量上。结果：发热更少，电池续航更长。
+    \item \textbf{全速域平稳运行。}与较简单的换相方式（梯形波/六步换相）不同，FOC 产生平滑的正弦电流，无力矩脉动。云台在低速时不会出现``齿槽感''。
+    \item \textbf{简化上层控制。}电调在内部以 10--40~kHz 完成全部 FOC 运算。上层控制器看到的是干净的电流（或电压）接口——一台虚拟直流有刷电机。只需设计速度环和位置环即可。
+\end{itemize}
+
+\textbf{FOC 需要什么：}FOC 依赖精确的转子位置反馈，通常使用磁编码器（如 AS5048）或霍尔传感器。没有位置反馈时，需采用无传感器 FOC（通过反电动势估算位置）——在无人机电调中常见，但精度不及有传感器方案。
+\end{mdframed}
+
+\subsubsection*{状态空间形式}
+
+进行观测器设计、LQR 或 MPC 时，你需要完整的状态空间表示。取 $\mathbf{x} = \begin{bmatrix} i & \omega \end{bmatrix}^T$，$u = V$：
+\begin{equation}
+\dot{\mathbf{x}} = A\mathbf{x} + Bu, \qquad
+A = \begin{bmatrix} -R/L & -K_e/L \\ K_t/J & -b/J \end{bmatrix}, \quad
+B = \begin{bmatrix} 1/L \\ 0 \end{bmatrix}
+\end{equation}
+
+当 $L \approx 0$ 时，电流状态 $i$ 成为代数变量，状态简化为 $\mathbf{x} = [\,\omega\,]$，回到一阶模型。当有电流传感器时，完整的两状态形式才是你输入 LQR 或卡尔曼滤波器的模型。
+
+\begin{mdframed}[linewidth=1pt, innertopmargin=10pt, innerbottommargin=10pt]
+\textbf{实用技巧：如何获取电机参数}
+
+\vspace{0.3em}
+你很少能拿到包含 $J$、$b$、$L$ 的数据手册。自己动手测量：
+
+\begin{itemize}[nosep]
+    \item \textbf{堵转测试}——施加已知的低电压 $V_s$，锁住转轴，测量堵转电流 $I_s$。则 $R = V_s / I_s$。
+    \item \textbf{空载测试}——无负载，施加额定电压 $V_0$，等待稳态后测量 $\omega_{\text{free}}$。则 $K_e = (V_0 - I_{\text{free}} R)\,/\,\omega_{\text{free}}$（SI 单位：V$\cdot$s/rad）。在 SI 单位下，$K_t = K_e$ 严格成立。
+    \item \textbf{阶跃响应}——施加电压阶跃，记录 $\omega(t)$。达到最终值 63\% 的时间即为 $\tau_m$。
+    \item \textbf{转动惯量}——由 $\tau_m = JR/(bR + K_t K_e)$ 反解 $J$；或用\emph{摆动测试}：在已知力臂上挂已知质量，在已知力矩下测量角加速度 $\alpha$，计算 $J = \tau/\alpha$。
+\end{itemize}
+
+\textbf{使用带电流控制器的 FOC 电调时的捷径：}大多数现代 FOC 电调以极高带宽闭合内部电流环。若该环激活，电流 $i$ 几乎瞬间跟踪指令。等效被控对象简化为\emph{纯机械动态}：
+\begin{equation*}
+\frac{\Omega(s)}{I_{\text{ref}}(s)} = \frac{K_t}{Js + b}
+\end{equation*}
+你只需要 $K_t$、$J$ 和 $b$——而 $b$ 通常可以忽略不计。这就是你用于调试外部速度环的被控对象。
+\end{mdframed}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{motor_step_response.pdf}
+\caption{直流有刷电机阶跃响应：从电压到角速度。左图：完整二阶模型，展示了快速的电气瞬态（$\tau_e \approx 1$~ms）和缓慢的机械上升过程（$\tau_m \approx 50$~ms）。右图：一阶近似（$L \approx 0$）几乎完美地还原了机械响应——电气极点响应太快，根本无关紧要。}
+\end{figure}
+
+\newpage

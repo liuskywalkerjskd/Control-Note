@@ -1,0 +1,934 @@
+%=============================================================================
+\section{经典控制理论}
+%=============================================================================
+
+这正是你一直期待的章节。经典控制理论教会我们如何让系统按照我们的意愿运行。而经典控制中当之无愧的王者——你在95\%的比赛机器人上都会用到的工具——就是PID控制器（PID Controller）。
+
+但在深入讲解PID之前，我们先要理解反馈控制（Feedback Control）究竟为什么有效。
+
+\subsection{反馈控制的基本概念}
+
+\textbf{开环控制（Open-loop Control）}就像不尝味道就做菜。你严格按照菜谱操作，祈祷结果没问题，然后上菜。如果烤箱温度偏差了10度，你的蛋糕就毁了。
+
+\textbf{闭环（反馈）控制（Closed-loop / Feedback Control）}就像边做菜边不停地品尝。你尝一口，调整口味，再尝，再调。即使烤箱温度不准，你也能实时补偿。
+
+用数学语言描述，一个基本的反馈回路如下：
+
+\begin{enumerate}
+    \item 计算\textbf{误差（error）}：$e(t) = r(t) - y(t)$，其中 $r$ 是期望输出（设定值），$y$ 是实际输出。
+    \item 将误差输入\textbf{控制器（controller）} $C(s)$，产生控制输入 $u(t)$。
+    \item 控制输入驱动\textbf{被控对象（plant）} $G(s)$，产生输出 $y(t)$。
+    \item 测量 $y(t)$，返回第1步。
+\end{enumerate}
+
+从设定值 $R$ 到输出 $Y$ 的闭环传递函数（Closed-loop Transfer Function）为：
+\begin{equation}
+\frac{Y(s)}{R(s)} = \frac{C(s)G(s)}{1 + C(s)G(s)}
+\end{equation}
+
+这是经典控制中最重要的公式。盯着它看，爱上它，把它背下来。
+
+\textbf{解析闭环传递函数：}
+
+令 $L(s) = C(s)G(s)$ 为\textbf{回路传递函数（loop transfer function）}（也叫开环传递函数）。则：
+
+\begin{itemize}
+    \item \textbf{互补灵敏度函数（Complementary Sensitivity，设定值跟踪）}：$T(s) = \frac{L(s)}{1 + L(s)}$。这就是上面写的那个——它告诉你输出跟随参考的好坏程度。理想情况下，$T(s) \approx 1$（低频处跟踪良好），$T(s) \approx 0$（高频处抑制噪声）。
+
+    \item \textbf{灵敏度函数（Sensitivity Function）}：$S(s) = \frac{1}{1 + L(s)}$。它告诉你输出端的扰动对输出的影响程度。$S$ 越小 = 抗扰性越好。注意 $T(s) + S(s) = 1$ 始终成立——你\textit{不可能}在同一频率下同时实现完美跟踪和完美抗扰。这是反馈控制的基本局限。
+
+    \item \textbf{输入灵敏度（Input Sensitivity）}：$C(s) \cdot S(s) = \frac{C(s)}{1 + L(s)}$。它告诉你需要多大的控制量。如果这个量在高频处很大，你的执行器就会没日没夜地放大噪声。
+\end{itemize}
+
+\textbf{核心洞察：}在 $|L(j\omega)| \gg 1$（高回路增益）的频率处，$T \approx 1$，$S \approx 0$——反馈效果很好。在 $|L(j\omega)| \ll 1$（低回路增益）的频率处，$T \approx 0$，$S \approx 1$——反馈形同虚设。\textbf{带宽（bandwidth）}是 $|L(j\omega)| = 1$（穿越频率）处的频率，它标志着"反馈在帮忙"和"反馈没在帮忙"的分界线。
+
+\textbf{为什么反馈如此强大：}
+\begin{itemize}
+    \item \textbf{降低对模型不确定性的敏感度。}即使 $G(s)$ 不能被精确已知，反馈也能补偿。
+    \item \textbf{抑制扰动。}外部力（摩擦、风、碰撞）会被自动纠正。
+    \item \textbf{改善动态响应。}通过合理选择 $C(s)$，可以让系统更快或阻尼更足。
+\end{itemize}
+
+\textbf{代价：}反馈也可能\textit{使系统失稳}。如果控制器过于激进，纠正动作超调，误差反向，再次超调，就会产生振荡甚至完全失稳。这就是为什么我们需要分析稳定性的工具。
+
+\vspace{0.5em}
+\begin{mdframed}[linewidth=1pt, innertopmargin=10pt, innerbottommargin=10pt]
+\textbf{案例分析：淋浴水温问题}
+
+\vspace{0.3em}
+你在自己的浴室里就体验过反馈控制失稳。过程如下：
+
+你走进淋浴间，水是凉的。你把热水旋钮拧到最大（大 $K_p$）。什么都没发生，沉默了2秒（管道延迟——这是\textbf{传输滞后（transport lag）}，是真实的控制理论概念）。你不耐烦了，继续加大旋钮。突然，滚烫的水喷到你身上。你猛地把旋钮拧向冷水。两秒后，冰水。你在滚烫和冰冷之间反复横跳了30秒，最终放弃。
+
+\textbf{出了什么问题（用控制理论来说）：}
+\begin{itemize}[nosep]
+    \item \textbf{被控对象（plant）}是热水器加管道，有显著的\textbf{时间延迟（time delay）}（约2秒）。
+    \item 你（控制器）使用了非常高的 $K_p$——激进的纠正动作。
+    \item 时间延迟引入了相位滞后（phase lag）。在你调节旋钮的频率上，总相位滞后超过180°。你的相位裕度（phase margin）为负。系统\textbf{失稳}。
+\end{itemize}
+
+\textbf{解决方法：}缓慢地拧旋钮，然后\textbf{等待}。这等价于降低 $K_p$，使带宽远低于 $1/(2 \times \text{延迟})$。你用速度换取了稳定性——这正是你在机器人上每个控制回路都会面临的同样权衡。
+
+\textbf{经验教训：}有时间延迟的系统在本质上更难控制。如果你的机器人有通信延迟（例如CAN总线延迟、视觉处理延迟），你\textit{必须}通过降低控制器激进程度或使用Smith预测器（一种补偿已知延迟的高级技术）来加以应对。
+\end{mdframed}
+
+\subsection{系统性能指标}
+
+设计控制器时，我们需要定义"好"是什么含义。对于阶跃响应（设定值突变），标准性能指标如下：
+
+\begin{itemize}
+    \item \textbf{上升时间（Rise time）} ($t_r$)：输出从终值的10\%上升到90\%所需的时间。通常越快越好。
+    \item \textbf{超调量（Overshoot）} ($M_p$)：输出超过设定值的幅度，以百分比表示。通常越小越好。
+    \item \textbf{调节时间（Settling time）} ($t_s$)：输出保持在终值 $\pm$2\%（或5\%）范围内所需的时间。
+    \item \textbf{稳态误差（Steady-state error）} ($e_{ss}$)：系统稳定后剩余的误差。理想情况下为零。
+\end{itemize}
+
+这些指标经常相互矛盾：更快的上升时间通常意味着更大的超调量。控制设计就是为你的应用场景找到合适的权衡点。跟踪目标的云台需要小超调（不能在目标前后抖动）。底盘加速到最高速度可以容忍一些超调，只要能更快达到速度。
+
+\subsubsection{稳定裕度}
+
+即使系统是稳定的，我们也想知道它\textit{有多稳定}——离失稳还有多远。用两个数来衡量：
+
+\textbf{增益裕度（Gain Margin，GM）：}在系统失稳之前，回路增益还能增加多少。以dB为单位。增益裕度6 dB意味着增益可以翻倍。典型目标：$>$ 6 dB。
+
+\textbf{相位裕度（Phase Margin，PM）：}在系统失稳之前，系统还能承受多少额外的相位滞后。以度为单位。相位裕度45°意味着系统还能承受额外45°的滞后。典型目标：30°--60°。
+
+你可以从开环传递函数 $C(s)G(s)$ 的\textbf{Bode图（Bode Plot）}上直接读取这两个裕度。
+
+\textbf{什么是Bode图？}Bode图是两张上下叠放的图，横轴都是频率（对数坐标）：
+\begin{itemize}
+    \item \textbf{上图：幅频图。}显示增益 $|G(j\omega)|$（dB）与频率的关系。0 dB 表示增益为1（输出等于输入）。+20 dB 表示增益为10。-20 dB 表示增益为0.1。换算公式：$\text{dB} = 20 \log_{10}(|G|)$。
+    \item \textbf{下图：相频图。}显示相角 $\angle G(j\omega)$（度）与频率的关系。相位 $-90°$ 意味着输出比输入滞后四分之一个周期。
+\end{itemize}
+
+\textbf{如何从Bode图读取稳定裕度：}
+\begin{itemize}
+    \item \textbf{相位穿越频率（Phase crossover frequency）} ($\omega_{pc}$)：相位穿越 $-180°$ 的频率。在此频率读取幅值——幅值曲线到0 dB的距离就是\textbf{增益裕度}。如果在 $\omega_{pc}$ 处幅值低于0 dB，系统稳定，增益裕度为正。
+    \item \textbf{增益穿越频率（Gain crossover frequency）} ($\omega_{gc}$)：幅值穿越0 dB的频率。在此频率读取相位——相位曲线到 $-180°$ 的距离就是\textbf{相位裕度}。如果在 $\omega_{gc}$ 处相位高于 $-180°$，系统稳定，相位裕度为正。
+\end{itemize}
+
+\textbf{Bode图速绘技巧：}对于传递函数 $G(s)$：
+\begin{itemize}
+    \item 位于 $s = -a$ 处的极点（pole）贡献从 $\omega = a$ 开始的 $-20$ dB/decade 衰减，以及以 $\omega = a$ 为中心的 $-45°$/decade 相位变化。
+    \item 位于 $s = -a$ 处的零点（zero）贡献 $+20$ dB/decade 和 $+45°$/decade（与极点相反）。
+    \item 积分器（$1/s$）在所有频率贡献 $-20$ dB/decade，以及恒定的 $-90°$ 相位。
+    \item 直流增益决定幅频图的纵向偏移。
+\end{itemize}
+
+掌握这些规则，你可以在一分钟内手绘近似的Bode图——在调试时需要快速验证思路时非常管用。
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{bode_plot.pdf}
+\caption{开环系统 $L(s) = \frac{100}{s(s+2)(s+10)}$ 的Bode图。增益裕度（橙色）和相位裕度（绿色）可直接从图中读取。两者均为正值，故系统稳定。}
+\end{figure}
+
+\textbf{经验法则：}如果系统振荡，说明相位裕度太小。如果系统响应迟钝，说明增益裕度太大（你过于保守了）。相位裕度约45°通常能取得不错的平衡。
+
+\subsection{基于传递函数的控制器设计}
+
+经典控制器设计的目标是：给定被控对象 $G(s)$，选择控制器 $C(s)$，使得闭环系统 $\frac{C(s)G(s)}{1+C(s)G(s)}$ 满足性能指标。
+
+方法有很多（根轨迹、频率响应整形、极点配置），但对于竞赛机器人而言，最实用的方法是：
+
+\begin{enumerate}
+    \item 从PID控制器出发（下一节介绍）。
+    \item 用系统化的方法进行整定。
+    \item 如果PID不够，添加前馈或切换到现代方法（第6节）。
+\end{enumerate}
+
+这听起来也许不够高深，但事实是：PID控制着全世界大约95\%的工业控制回路。它简单、鲁棒、有效。不要把事情搞复杂。
+
+\subsection{PID控制器}
+
+PID控制器根据误差 $e(t)$ 计算三项之和作为控制信号：
+
+\begin{equation}
+u(t) = K_p e(t) + K_i \int_0^t e(\tau) d\tau + K_d \frac{de(t)}{dt}
+\end{equation}
+
+每一项都有其独特的作用：
+
+\begin{itemize}
+    \item \textbf{P（比例，Proportional）：}"误差大，就用力推；误差小，就轻轻推。"这是最直觉的一项——类似弹簧的反应。
+    \item \textbf{I（积分，Integral）：}"误差持续一段时间了，肯定有持续性扰动。继续加力直到消除误差。"它消除稳态误差，但可能引起超调和积分饱和（windup）。
+    \item \textbf{D（微分，Derivative）：}"误差变化很快，系统有惯性。踩刹车。"它增加阻尼并减少超调，但会放大噪声。
+\end{itemize}
+
+\textbf{一个类比：}想象你开车向停车标志驶去。
+\begin{itemize}
+    \item P说："停车标志还有100米，踩油门。"然后："还有10米，松油门。"
+    \item D说："你在快速靠近——现在就开始刹车，不要等到很近再刹！"
+    \item I说："你在标志前1米停住了。慢慢倒车，直到精确对准。"
+\end{itemize}
+
+\subsubsection{PID控制器——连续形式}
+
+PID控制器的传递函数为：
+\begin{equation}
+C(s) = K_p + \frac{K_i}{s} + K_d s = K_p \left(1 + \frac{1}{T_i s} + T_d s\right)
+\end{equation}
+
+其中 $T_i = K_p / K_i$ 是积分时间，$T_d = K_d / K_p$ 是微分时间。
+
+\textbf{从频域理解PID：}
+
+PID控制器的Bode图揭示了它为何有效：
+\begin{itemize}
+    \item \textbf{极低频处}（$\omega \to 0$）：$K_i/s$ 项主导。增益趋向无穷大（$+\infty$ dB），这正是I项消除稳态误差的原因——直流处的无穷增益意味着直流误差为零。
+    \item \textbf{中频处}：$K_p$ 主导。增益约为 $20\log_{10}(K_p)$ dB。控制器的大部分工作在这个频率范围完成。
+    \item \textbf{高频处}（$\omega \to \infty$）：$K_d s$ 主导。增益以 $+20$ dB/decade 随频率增大，这正是D项放大噪声的原因——它在噪声频率处有递增的增益。
+\end{itemize}
+
+PID有\textbf{两个折断频率（break frequencies）}：$\omega_1 = 1/T_i$（I项移交给P项）和 $\omega_2 = 1/T_d$（P项移交给D项）。两者之间，控制器表现为纯比例控制。幅频图在对数坐标下看起来像"V"形（或浴缸形）：低频处增益大（I），中间平坦（P），高频处上升（D）。
+
+\textbf{为什么另一种形式很重要：}$K_p(1 + \frac{1}{T_i s} + T_d s)$ 的形式使物理含义更清晰：$T_i$ 表示"积分项回看多久"，$T_d$ 表示"微分项向前预测多远"。$T_i$ 越大，积分动作越慢。$T_d$ 越大，预测性越强（但对噪声也更敏感）。
+
+\textbf{各增益的影响：}
+
+\begin{center}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{增大} & \textbf{上升时间} & \textbf{超调量} & \textbf{调节时间} & \textbf{稳态误差} \\
+\midrule
+$K_p$ & 减小 & 增大 & 小幅变化 & 减小 \\
+$K_i$ & 减小 & 增大 & 增大 & 消除 \\
+$K_d$ & 小幅变化 & 减小 & 减小 & 无影响 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{实践起点：}先只用P控制。如果存在稳态误差，加入I。如果超调或振荡过大，加入D。不要三个参数同时从非零值开始调——你不知道是哪个旋钮在起作用。
+
+\vspace{0.5em}
+\begin{mdframed}[linewidth=1pt, innertopmargin=10pt, innerbottommargin=10pt]
+\textbf{案例分析：整定云台偏航电机——亲眼看P、I、D各自的作用}
+
+\vspace{0.3em}
+让我们一步步整定RoboMaster云台偏航轴。电机是GM6020，通过CAN总线控制，目标是跟踪一个角度。设定值是一个90°的阶跃指令。
+
+\textbf{第1步：只用P（$K_p = 5.0$，$K_i = 0$，$K_d = 0$）}
+
+云台快速向目标摆动，但超调约15°，振荡3--4次，最终以\textbf{2°的稳态误差}稳定。为什么有误差？因为云台接近目标时，误差变小，P项输出也随之减小。到某个时刻，P项输出等于摩擦力矩，云台在\textit{还未到达}目标时就停下来了。单靠P项无法消除持续扰动（如摩擦或重力）引起的误差。
+
+\textbf{第2步：加入I（$K_p = 5.0$，$K_i = 0.5$，$K_d = 0$）}
+
+稳态误差消失了！积分项缓慢积累小的残余误差并推动电机，直到误差精确为零。但现在超调更大了（约20°），还有缓慢振荡，需要2秒才能衰减。积分项在"记住"过去的误差并施加了不必要的力。这是I项经典的权衡：修复了直流误差，但使瞬态响应变差了。
+
+\textbf{第3步：加入D（$K_p = 5.0$，$K_i = 0.5$，$K_d = 2.0$）}
+
+超调量大幅下降至约5°，振荡几乎消失。微分项感知到快速靠近并在云台到达目标\textit{之前}施加制动力矩。就像一位经验丰富的司机，在到达路口前很早就开始刹车，而不是到最后一刻。
+
+\textbf{第4步：精细调整（$K_p = 6.0$，$K_i = 0.3$，$K_d = 3.0$）}
+
+略微增大 $K_p$ 以加快上升速度，减小 $K_i$（我们只需要它来克服静摩擦，不需要激进的误差纠正），增大 $K_d$ 以增加阻尼。结果：快速、平滑的跟踪，超调不到3°，稳态误差为零。云台在0.3秒内锁定目标。
+
+\textbf{把每个参数调到过大会发生什么？}
+\begin{itemize}[nosep]
+    \item $K_p$ 过大：云台剧烈振荡——超调太猛，纠正动作又向另一方向超调。这是失稳的前兆。
+    \item $K_i$ 过大：缓慢、黏糊的振荡。积分"记得"太用力，不断过度纠正。云台像果冻一样摇摆。
+    \item $K_d$ 过大：电机嗡嗡震动。微分放大传感器噪声，导致快速来回的力矩指令。你的电机听起来像一只愤怒的蜜蜂。
+\end{itemize}
+
+\textbf{经验教训：}每个参数都有一个"最佳点"。理解每一项的\textit{物理机制}（弹簧、记忆器、阻尼器），你就能立刻诊断问题，而不是盲目地乱拧旋钮。
+\end{mdframed}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{pid_tuning.pdf}
+\caption{二阶被控对象上的PID整定过程。纯P存在稳态误差；PI消除稳态误差但超调更大；PID在保持零稳态误差的同时抑制了超调。}
+\end{figure}
+
+\subsubsection{PID控制器——离散形式}
+
+你的微控制器无法计算连续的积分和微分，它以固定采样时间步长 $T_s$ 处理离散样本。离散PID为：
+
+\begin{equation}
+u[n] = K_p \, e[n] + K_i \, T_s \sum_{k=0}^{n} e[k] + K_d \frac{e[n] - e[n-1]}{T_s}
+\end{equation}
+
+或者用更便于实现的\textbf{增量式（速度式）形式（incremental / velocity form）}：
+\begin{equation}
+\Delta u[n] = K_p (e[n] - e[n-1]) + K_i \, T_s \, e[n] + K_d \frac{e[n] - 2e[n-1] + e[n-2]}{T_s}
+\end{equation}
+
+\begin{equation}
+u[n] = u[n-1] + \Delta u[n]
+\end{equation}
+
+增量式的实践优势：如果控制器复位或出现故障，不会突然产生大幅输出——每次只调整一个小增量。这对你的硬件更安全。
+
+\textbf{基础离散PID伪代码：}
+\begin{verbatim}
+    error = setpoint - measurement
+    integral += error * dt
+    derivative = (error - prev_error) / dt
+    output = Kp * error + Ki * integral + Kd * derivative
+    prev_error = error
+\end{verbatim}
+
+\textbf{警告：}这种朴素实现在实践中有三个问题会坑到你：积分饱和（integral windup）、微分冲击（derivative kick）和噪声放大。请阅读下一节。
+
+\subsubsection{改进的PID控制器}
+
+教科书上的PID有几个众所周知的问题。以下是每个竞赛机器人都应该使用的修复方案。
+
+\textbf{1. 积分饱和与抗积分饱和（Integral Windup and Anti-windup）}
+
+\textit{问题：}当执行器饱和（电机达到最大电压）时，积分项持续累积误差，无限增长。当误差最终反向时，巨大的积分需要很长时间才能"退饱和"，导致大幅超调。
+
+\textit{修复方案（限幅法）：}
+\begin{verbatim}
+    integral += error * dt
+    integral = clamp(integral, -max_integral, max_integral)
+\end{verbatim}
+
+\textit{更好的修复方案（反向计算法）：}当输出饱和时，按比例减小积分项：
+\begin{verbatim}
+    output_raw = Kp * error + Ki * integral + Kd * derivative
+    output = clamp(output_raw, -max_output, max_output)
+    integral += (error + (output - output_raw) / Ki) * dt
+\end{verbatim}
+
+\textbf{2. 微分冲击（Derivative Kick）}
+
+\textit{问题：}当设定值突然变化（阶跃指令）时，误差 $e = r - y$ 瞬间跳变。微分项将此视为无限大的变化率，产生输出中的巨大尖峰（"冲击"）。
+
+\textit{修复方案：}对\textit{测量值}求导，而非对误差求导：
+\begin{verbatim}
+    derivative = -(measurement - prev_measurement) / dt
+\end{verbatim}
+
+测量值变化平滑（电机不能瞬移），因此不会有冲击。
+
+\textbf{3. 微分噪声放大（Derivative Noise Amplification）}
+
+\textit{问题：}微分运算放大高频噪声。如果你的测量带有噪声，微分项会产生剧烈波动的输出。
+
+\textit{修复方案：}对微分项进行低通滤波：
+\begin{equation}
+D(s) = \frac{K_d s}{1 + \frac{K_d}{N K_p} s}
+\end{equation}
+
+在代码中，这是对微分项的一阶低通滤波，$N$（通常为8--20）控制滤波器截止频率。
+
+\textbf{4. 设定值加权（Setpoint Weighting）}
+
+有时你希望P项和D项对设定值变化与扰动的响应不同。设定值加权引入参数 $b$ 和 $c$：
+\begin{equation}
+u = K_p(b \cdot r - y) + K_i \int (r - y) \, dt + K_d \frac{d(c \cdot r - y)}{dt}
+\end{equation}
+
+设 $b = 1, c = 0$（仅对测量值求导）是最常见的配置。
+
+\subsection{PID进阶改进}
+
+以上四个修复是每个竞赛机器人的\textit{最低要求}。但还有更深层的结构性改进，能够显著改变性能表现。以下从频域角度进行分析，并通过仿真加以展示。
+
+\subsubsection{积分分离（Integral Separation）}
+
+\textit{问题：}当误差较大时（例如刚收到阶跃指令后），积分项积极累积。这个"预充电"的积分在系统接近设定值时会引起超调——积分"记住"了大误差阶段太多的历史。
+
+\textit{修复方案：}只有当误差小于阈值 $\varepsilon$ 时才激活积分项：
+\begin{equation}
+u_I = \begin{cases} K_i \int e \, dt & \text{如果 } |e| < \varepsilon \\ 0 & \text{如果 } |e| \geq \varepsilon \end{cases}
+\end{equation}
+
+\textbf{频域解释：}积分分离实际上使控制器变成\textbf{非线性}——大误差时表现为PD控制器（无积分），小误差时切换为完整的PID。在频域中，这意味着：
+\begin{itemize}
+    \item 大瞬态期间：直流处的开环增益是有限的（仅PD），因此不存在无穷低频增益。这防止了积分在瞬态期间的"饱和"。
+    \item 接近稳态时：积分激活，提供无穷直流增益和零稳态误差——正是我们需要的。
+\end{itemize}
+
+控制器实际上根据误差幅度拥有\textbf{两种不同的Bode图}：一种没有低频处的 $K_i/s$ 极点（类PD），一种有（PID）。阈值 $\varepsilon$ 控制"切换"的时机。
+
+\textbf{代码：}
+\begin{verbatim}
+    if (fabs(error) < epsilon) {
+        integral += Ki * error * dt;
+    }
+    // 否则：积分保持冻结（既不增长也不复位）
+\end{verbatim}
+
+\textbf{如何选择 $\varepsilon$：}将其设置为纯PD控制器的近似稳态误差。这样，积分仅在PD完成了大部分工作、只需要最后一点"微调"时才激活。
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{integral_separation.pdf}
+\caption{左图：积分分离（蓝色）相比标准PID（红色）减少了超调，因为积分不在大初始瞬态期间累积。右图：第一秒内的控制信号——注意分离版本的峰值更小。}
+\end{figure}
+
+\subsubsection{微分位置：PID vs PI-D vs I-PD}
+
+标准PID将三项都作用于误差 $e = r - y$。但有\textbf{三种结构变体}，改变了P项和D项作用于哪个信号：
+
+\begin{center}
+\begin{tabular}{lccc}
+\toprule
+\textbf{结构} & \textbf{P作用于} & \textbf{I作用于} & \textbf{D作用于} \\
+\midrule
+PID & 误差 $(r - y)$ & 误差 $(r - y)$ & 误差 $(r - y)$ \\
+PI-D & 误差 $(r - y)$ & 误差 $(r - y)$ & 测量值 $(-y)$ \\
+I-PD & 测量值 $(-y)$ & 误差 $(r - y)$ & 测量值 $(-y)$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{频域分析：}三种结构具有\textit{相同的}闭环抗扰传递函数（从扰动到输出）。它们仅在\textit{设定值到输出}的传递函数上有所不同：
+
+\begin{itemize}
+    \item \textbf{PID：}$\frac{Y}{R} = \frac{(K_d s^2 + K_p s + K_i) G(s)}{s + (K_d s^2 + K_p s + K_i) G(s)}$ ——分子含 $K_d s^2$ 项，在阶跃响应中产生"微分冲击"（分子零点放大了阶跃的高频成分）。
+    \item \textbf{PI-D：}$\frac{Y}{R} = \frac{(K_p s + K_i) G(s)}{s + (K_d s^2 + K_p s + K_i) G(s)}$ ——从设定值通路中移除了 $K_d s^2$，消除了微分冲击。分母（稳定性、抗扰性）不变。
+    \item \textbf{I-PD：}$\frac{Y}{R} = \frac{K_i \cdot G(s)}{s + (K_d s^2 + K_p s + K_i) G(s)}$ ——从设定值通路中同时移除 $K_d s^2$ 和 $K_p s$。阶跃响应最平滑（无P或D引起的超调），但也最慢。
+\end{itemize}
+
+\textbf{核心洞察：}这些结构让你能够独立调整系统对\textit{设定值变化}的响应（通过分子）和对\textit{扰动的抑制}（通过分母）。相同的分母 = 相同的稳定性和抗扰性。不同的分子 = 不同的设定值跟踪行为。
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{derivative_placement.pdf}
+\caption{左图：PID（红色）显示微分冲击尖峰和超调。PI-D（蓝色）消除了冲击。I-PD（绿色）最平滑但最慢。右图：控制信号揭示了标准PID中的剧烈冲击——这个尖峰会磨坏齿轮。}
+\end{figure}
+
+\subsubsection{滤波PID：频域证明}
+
+理想PID控制器 $C(s) = K_p + K_i/s + K_d s$ 有一个根本性问题：$K_d s$ 项在高频处具有\textbf{无界增益}。在Bode图上，$K_d s$ 的幅值以 $+20$ dB/decade 永远上升。这意味着：
+
+\begin{enumerate}
+    \item 传感器噪声（存在于高频）被无限放大。
+    \item 控制器要求执行器响应速度无限快，这在物理上是不可能的。
+    \item 在离散时间中，微分项将高频噪声混叠进控制带。
+\end{enumerate}
+
+\textbf{解决方案——滤波微分（filtered derivative）：}
+\begin{equation}
+C_{\text{filtered}}(s) = K_p + \frac{K_i}{s} + \frac{K_d N s}{s + N}
+\end{equation}
+
+$\frac{Ns}{s+N}$ 项是截止频率为 $\omega = N$ rad/s 的一阶高通滤波器。在 $N$ 以下，它表现为纯微分（$\approx s$）。在 $N$ 以上，它趋于常数增益 $N$。在Bode图上：
+
+\begin{itemize}
+    \item $\omega < N$ 处：滤波PID与理想PID完全相同，性能一致。
+    \item $\omega > N$ 处：幅值\textbf{趋于平坦}，而不是永远上升。最大微分增益为 $K_d \cdot N$，噪声放大有界。
+\end{itemize}
+
+\textbf{如何选择 $N$：}典型值为 $N = 8$--$20$。规则：$N$ 要足够大，使微分在控制器带宽处仍有效工作；但也要足够小以衰减噪声。具体而言：$N > 5 \times \omega_{\text{bandwidth}}$（避免滤波器吃掉有用的微分作用）且 $N < \omega_{\text{noise}} / 3$（充分衰减噪声）。
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{pid_bode_comparison.pdf}
+\caption{Bode图：理想PID（红色）在高频处增益永远上升——它会放大每一点传感器噪声。滤波PID（蓝色）在 $\omega = N$ 以上趋于平坦，限制了噪声放大。在滤波器截止频率以下，两者完全相同。}
+\end{figure}
+
+\textbf{输出级低通滤波器（Output-stage LPF）：}另一种方法是在将PID输出发送到执行器前，对\textit{整个}PID输出进行低通滤波：
+\begin{equation}
+U(s) = \frac{\omega_f}{s + \omega_f} \cdot C(s) \cdot E(s)
+\end{equation}
+
+这种方法实现更简单（PID后加一个低通滤波器），但它同时滤掉了P项和I项，可能减慢响应速度。仅对微分项滤波的方案更受青睐，因为它精确地针对问题所在。
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{pid_noise_filtering.pdf}
+\caption{上图：带噪声测量的位置响应。未滤波PID（红色）因噪声放大的微分项而振荡。滤波微分（蓝色）和输出低通滤波（绿色）都能平滑响应。下图：未滤波的控制信号非常剧烈——会损坏真实的电机。}
+\end{figure}
+
+\subsubsection{二自由度PID（2-DOF PID）}
+
+标准PID有\textbf{一个自由度}：你选择 $K_p$、$K_i$、$K_d$ 来满足你的指标。但存在一个根本性冲突：能给出良好\textit{设定值跟踪}（快速、低超调的阶跃响应）的增益，与能给出良好\textit{抗扰性}（受扰后快速恢复）的增益不同。
+
+二自由度PID通过引入设定值加权参数 $b$（作用于P项）和 $c$（作用于D项）来解决这一矛盾：
+\begin{equation}
+u = K_p(b \cdot r - y) + K_i \int (r - y) \, dt + K_d \frac{d(c \cdot r - y)}{dt}
+\end{equation}
+
+\textbf{频域分析：}闭环传递函数变为：
+\begin{align}
+\frac{Y}{R} &= \frac{(b K_p + c K_d s + K_i / s) \cdot G(s)}{1 + C(s) G(s)} \quad \text{（设定值跟踪——由 $b$、$c$ 调节）} \\[4pt]
+\frac{Y}{D} &= \frac{G(s)}{1 + C(s) G(s)} \quad \text{（抗扰性——与 $b$、$c$ 无关！）}
+\end{align}
+
+\textbf{神奇之处：}$b$ 和 $c$ \textit{只}影响设定值传递函数。抗扰性完全由 $K_p$、$K_i$、$K_d$ 控制。现在你可以：
+\begin{enumerate}
+    \item 调整 $K_p$、$K_i$、$K_d$ 以实现激进的抗扰性。
+    \item 独立地降低 $b$（通常为 $0.5$--$0.8$）来柔化设定值响应并减少超调。
+    \item 设 $c = 0$ 以消除微分冲击（这就是PI-D结构）。
+\end{enumerate}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{two_dof_pid.pdf}
+\caption{左图：不同的 $b$ 值独立控制设定值超调。右图：$t = 1.0$s 时的扰动抑制对所有 $b$ 值\textbf{完全相同}——证明了二自由度PID真正实现了两个目标的解耦。}
+\end{figure}
+
+\subsection{LQG：噪声系统的最优控制器}
+
+我们在第6节介绍了LQR（Linear Quadratic Regulator，线性二次型调节器）作为最优状态反馈控制器，以及卡尔曼滤波器（Kalman Filter）作为最优观测器。\textbf{LQG（Linear Quadratic Gaussian，线性二次型高斯控制器）}就是将两者结合的结果：LQR负责控制，卡尔曼滤波器负责估计，而分离原理（separation principle）保证了这种组合的稳定性。
+
+\textbf{LQG架构：}
+\begin{align}
+\text{卡尔曼滤波器：} \quad \dot{\hat{\mathbf{x}}} &= A\hat{\mathbf{x}} + B\mathbf{u} + L(\mathbf{y} - C\hat{\mathbf{x}}) \\
+\text{LQR控制器：} \quad \mathbf{u} &= -K\hat{\mathbf{x}}
+\end{align}
+
+其中 $K$ 来自控制Riccati方程（最小化状态代价），$L$ 来自估计Riccati方程（最小化估计误差）。控制器从不接触真实状态——它作用于卡尔曼估计值。
+
+\textbf{为什么LQG在MIMO/噪声系统中优于PID：}
+\begin{enumerate}
+    \item \textbf{最优噪声处理：}PID通过微分项放大噪声。LQG的卡尔曼滤波器提供最小方差状态估计——为控制器提供尽可能干净的信号。
+    \item \textbf{天然适合MIMO：}PID本质上是SISO的。对于4状态平衡机器人，PID需要层叠的多个回路和手工调整的交叉耦合。LQG用一个 $K$ 矩阵处理所有状态。
+    \item \textbf{状态估计：}PID无法估计未测量的状态。LQG的卡尔曼滤波器可从部分测量（例如仅位置传感器）重建完整状态（包括速度）。
+    \item \textbf{系统化整定：}PID每个回路有3个旋钮。LQG有 $Q$、$R$（控制代价）和 $Q_n$、$R_n$（噪声模型）——物理含义明确的矩阵。
+\end{enumerate}
+
+\textbf{LQG的鲁棒性警告：}纯LQR具有保证的稳定裕度（增益裕度 $\geq$ 6 dB，相位裕度 $\geq$ 60°）。当你加入卡尔曼滤波器构成LQG时，这些保证\textit{消失了}。LQG控制器可以有任意小的稳定裕度。这就是著名的\textbf{Doyle反例}（1978年）——它推动了 $H_\infty$ 鲁棒控制的发展。
+
+\textbf{实践含义：}当模型准确且噪声特性明确时，LQG效果良好。若存在显著的模型不确定性（未知摩擦、变化载荷），可考虑：
+\begin{itemize}
+    \item \textbf{LQG/LTR（回路传递恢复，Loop Transfer Recovery）：}修改卡尔曼滤波器整定，在被控对象输入处恢复LQR的鲁棒性裕度。
+    \item \textbf{$H_\infty$ 控制：}针对最坏情况的模型不确定性进行设计，而非平均噪声。
+    \item \textbf{实用做法：}在 $\pm 30\%$ 参数变化的仿真中验证LQG。如果保持稳定，通常足够在比赛中使用。
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{lqg_comparison.pdf}
+\caption{LQG（蓝色）与直接带噪反馈（红色）在平衡机器人上的对比（$t=2$s 处有扰动）。两者使用相同的LQR增益，但红色使用原始噪声测量加数值微分，蓝色使用卡尔曼滤波器。LQG恢复更快（左上），位置维持更好（右上），控制量更平滑（左下），RMS误差更低（右下）。这展示了卡尔曼滤波器的价值：相同增益、相同结构，性能却天壤之别。}
+\end{figure}
+
+\subsection{PID整定方法}
+
+你已经设计好了PID控制器。现在来回答那个永恒的问题：$K_p$、$K_i$、$K_d$ 应该取什么值？
+
+\subsubsection{经验整定}
+
+比赛中最常用的方法，因为不需要数学推导，效果却出人意料地好。
+
+\textbf{Ziegler-Nichols极限增益法（ultimate gain method）：}
+\begin{enumerate}
+    \item 令 $K_i = 0$，$K_d = 0$。
+    \item 逐渐增大 $K_p$，直到系统以恒定幅值振荡。此时的 $K_p$ 即为\textbf{极限增益（ultimate gain）} $K_u$，振荡周期为 $T_u$。
+    \item 按下表设置PID增益：
+\end{enumerate}
+
+\begin{center}
+\begin{tabular}{lccc}
+\toprule
+\textbf{控制器} & $K_p$ & $K_i$ & $K_d$ \\
+\midrule
+P & $0.5 K_u$ & --- & --- \\
+PI & $0.45 K_u$ & $0.54 K_u / T_u$ & --- \\
+PID & $0.6 K_u$ & $1.2 K_u / T_u$ & $0.075 K_u T_u$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{警告：}Ziegler-Nichols给出的整定结果比较激进，超调量约25\%。对于许多竞赛应用，你需要在此基础上适当减小 $K_p$ 和 $K_i$。
+
+\textbf{手动整定（实用方法）：}
+\begin{enumerate}
+    \item 先只用 $K_p$。增大到响应快但略有振荡。
+    \item 加入 $K_d$ 以抑制振荡。增大到振荡消失。
+    \item 如果有稳态误差，加入少量 $K_i$。缓慢增大——过大会引起缓慢振荡。
+    \item 精细调整。用不同设定值和扰动进行测试。
+\end{enumerate}
+
+\textbf{竞赛建议：}始终在机器人\textit{实际负载}下整定，而不是让电机空转。装了摄像头的云台与裸电机在测试台上的表现差异悬殊。
+
+\subsubsection{使用MATLAB Simulink整定}
+
+如果你能用MATLAB，可以对系统建模，并使用\textbf{PID整定器（PID Tuner）}应用程序或\textbf{Simulink Control Design}自动找到最优增益。
+
+\textbf{基本流程：}
+\begin{enumerate}
+    \item 在Simulink中建立被控对象模型（电机 + 负载）。
+    \item 添加PID控制器模块。
+    \item 在PID模块中点击"Tune"按钮，打开PID整定器。
+    \item 调整响应时间和鲁棒性滑块。
+    \item 将增益导出到你的嵌入式代码中。
+\end{enumerate}
+
+这是在硬件上精细调整之前获取起始点的好方法。关键挑战在于获得准确的被控对象模型——如果模型有误，整定结果也会有误。
+
+\subsection{系统辨识：搞清楚你的被控对象究竟如何工作}
+
+到目前为止，我们假设你\textit{知道}被控对象模型——传递函数 $G(s)$ 或状态空间矩阵 $A$、$B$、$C$、$D$。但这些从哪里来？你有两个选择：
+
+\begin{enumerate}
+    \item \textbf{第一性原理建模（First-principles Modeling）：}写出物理方程（牛顿定律、基尔霍夫定律等），解析推导模型。这正是我们在第3节对直流有刷电机所做的事。当物理过程简单且理解透彻时效果很好。
+    \item \textbf{系统辨识（System Identification，Sysid）：}向真实系统施加已知输入，测量输出，然后\textit{拟合}数学模型到输入-输出数据。当物理过程过于复杂、未知，或者你想捕捉第一性原理模型忽略的效应（非线性摩擦、缆线刚度、齿轮间隙）时使用。
+\end{enumerate}
+
+实践中，你几乎总是\textbf{两者兼用}：用第一性原理获得模型结构（"它是一个带延迟的二阶系统"），然后用系统辨识确定实际参数值（$K$、$\tau$、$\zeta$ 等）。
+
+\subsubsection{阶跃响应法（时域）}
+
+最简单的系统辨识技术。施加阶跃输入并记录输出。
+
+\textbf{对于一阶系统} $G(s) = \frac{K}{\tau s + 1}$：
+\begin{enumerate}
+    \item 向电机电压施加幅值为 $A$ 的阶跃。
+    \item 记录速度响应 $y(t)$。
+    \item 读取：
+    \begin{itemize}[nosep]
+        \item $K$ = （最终稳态值）/ $A$ = 直流增益
+        \item $\tau$ = 到达终值63.2\%所需的时间 = 时间常数
+    \end{itemize}
+\end{enumerate}
+
+\textbf{对于二阶系统} $G(s) = \frac{K\omega_n^2}{s^2 + 2\zeta\omega_n s + \omega_n^2}$：
+\begin{enumerate}
+    \item 施加阶跃并记录。
+    \item 读取：
+    \begin{itemize}[nosep]
+        \item $K$ = （终值）/（阶跃幅值）
+        \item $M_p$ = 百分比超调量 $\Rightarrow$ $\zeta = \frac{-\ln(M_p/100)}{\sqrt{\pi^2 + \ln^2(M_p/100)}}$
+        \item $t_p$ = 第一个峰值出现的时间 $\Rightarrow$ $\omega_n = \frac{\pi}{t_p \sqrt{1 - \zeta^2}}$
+    \end{itemize}
+\end{enumerate}
+
+\textbf{实践建议：}
+\begin{itemize}
+    \item 以传感器支持的最高速率记录数据（电机1 kHz以上）。
+    \item 测试运行3--5次取平均以减小噪声影响。
+    \item 用不同阶跃幅值测试以检验线性性。若响应形状改变，系统是非线性的。
+    \item 同时记录上升阶跃（0 $\to$ V）和下降阶跃（V $\to$ 0）。若两者不同，说明存在不对称动态（如正反转摩擦不同）。
+\end{itemize}
+
+\subsubsection{频率响应法（Bode辨识）}
+
+在不同频率施加正弦输入，在每个频率测量增益和相移。这直接构造出系统的Bode图。
+
+\textbf{步骤：}
+\begin{enumerate}
+    \item 向系统施加 $u(t) = A \sin(\omega t)$。
+    \item 等待瞬态消失（几个周期）。
+    \item 测量稳态输出幅值 $B$ 和相位滞后 $\phi$。
+    \item 计算增益：$|G(j\omega)| = B/A$，相位：$\angle G(j\omega) = \phi$。
+    \item 在期望带宽的0.1$\times$至10$\times$范围内重复上述步骤。
+\end{enumerate}
+
+\textbf{为什么这种方法强大：}Bode图直接告诉你系统阶次（数衰减斜率的段数）、共振频率（幅值图中的峰值）和时间延迟（线性相位减小）。然后可以拟合传递函数与测量的Bode图匹配。
+
+\textbf{更快的替代方案——扫频信号（Chirp Signal）：}与其逐个频率测试，不如施加一个\textbf{扫频信号（chirp）}——频率在几秒内从低到高线性增加。然后计算输入和输出的FFT，相除：$G(j\omega) = \frac{Y(j\omega)}{U(j\omega)}$。一次实验就能得到完整的Bode图。
+
+\subsubsection{最小二乘辨识（自动化）}
+
+对于数字系统，系统辨识可以完全自动化。给定输入-输出数据 $\{u[k], y[k]\}$，拟合离散传递函数：
+\begin{equation}
+y[k] = -a_1 y[k{-}1] - \cdots - a_n y[k{-}n] + b_0 u[k{-}1] + \cdots + b_m u[k{-}m{-}1]
+\end{equation}
+
+这是一个\textbf{线性回归（linear regression）}问题。将所有样本堆叠成矩阵方程 $\mathbf{y} = \Phi \boldsymbol{\theta}$，用最小二乘法求解：$\boldsymbol{\theta} = (\Phi^T \Phi)^{-1} \Phi^T \mathbf{y}$。
+
+\textbf{用Python（3行代码）：}
+\begin{verbatim}
+    from scipy.signal import dlsim
+    from scipy.optimize import curve_fit
+    # 或者使用专用库：
+    import control
+    sys_id = control.tf(num, den, dt)  # 拟合到数据
+
+    # MATLAB中更简单：
+    % data = iddata(y, u, Ts);
+    % sys = tfest(data, 2);  % 拟合2阶传递函数
+    % bode(sys);  % 查看结果
+\end{verbatim}
+
+\textbf{MATLAB的System Identification Toolbox}是这方面的黄金标准。函数 \texttt{tfest(data, n)} 可自动将 $n$ 阶传递函数拟合到记录的数据上。从 $n = 1$ 开始，逐步增加直到拟合效果满意（对电机而言通常 $n = 2$ 就足够了）。
+
+\subsubsection{竞赛机器人的实用系统辨识流程}
+
+\begin{enumerate}
+    \item \textbf{开环阶跃测试：}禁用所有控制器。向电机发送已知的电压阶跃。以最高速率记录编码器/IMU数据。
+    \item \textbf{快速估计：}目测阶跃响应，估算 $K$ 和 $\tau$（一阶）或 $K$、$\zeta$、$\omega_n$（二阶）。
+    \item \textbf{验证：}用相同的阶跃输入仿真辨识出的模型，将仿真结果叠加到真实数据上。如果吻合，就完成了。
+    \item \textbf{必要时改进：}如果一阶模型不够精确，尝试二阶。如果有明显延迟，添加时间延迟项 $e^{-\tau_d s}$。
+    \item \textbf{用于控制器设计：}将辨识出的模型用于PID整定（MATLAB PID整定器）、LQR设计（$A$、$B$ 矩阵）或前馈计算。
+\end{enumerate}
+
+\textbf{常见陷阱：}
+\begin{itemize}
+    \item \textbf{摩擦：}静摩擦（stiction）使系统在低速附近非线性。你的线性模型在速度接近零时会不准确。考虑分别辨识"运动中"和"启动时"的模型。
+    \item \textbf{间隙（Backlash）：}齿轮间隙产生死区。系统在齿轮咬合之前不响应小输入。这在阶跃响应中表现为一段平坦区域。
+    \item \textbf{饱和：}如果阶跃幅值将电机推入饱和，辨识出的模型将是错误的。使用线性工作范围内的阶跃幅值（通常为最大电压的30--70\%）。
+    \item \textbf{耦合：}在多轴系统（云台、底盘）上，移动一个轴可能激励另一个轴。如有可能，锁定其他轴后分别辨识每个轴。
+\end{itemize}
+
+\textbf{为什么系统辨识很重要：}基于20\%参数误差模型设计的控制器，性能会比基于真实模型的差20\%。5分钟的数据记录加系统辨识，能省去数小时的手动PID整定。这对于高度依赖精确 $A$、$B$ 矩阵的LQR和MPC尤为如此。
+
+\subsection{前馈控制（Feedforward Control）}
+
+反馈是被动的——它等待误差出现后再纠正。前馈是\textbf{主动的}——它预测系统的需求并立即提供。
+
+\textbf{示例：}你想让云台跟踪一个以恒定速度运动的目标。纯反馈控制下，控制器始终在追赶目标，产生跟踪误差。有了前馈，你计算维持该速度所需的电机电压并加到反馈输出上：
+\begin{equation}
+u(t) = u_{\text{前馈}}(t) + u_{\text{反馈}}(t)
+\end{equation}
+
+前馈项处理运动的"预期"部分；反馈处理"意外"部分（扰动、模型误差）。
+
+\textbf{重力补偿（gravity compensation）}是机械臂和云台常见的前馈项：
+\begin{equation}
+u_{\text{ff}} = \tau_{\text{重力}}(\theta) = mgl\sin(\theta)
+\end{equation}
+
+没有这一项，反馈控制器就会把精力浪费在对抗重力上，而不是跟踪参考。
+
+\textbf{前馈的黄金法则：}前馈依赖模型，因此它只有模型那么好。反馈不依赖模型，因此始终具有鲁棒性。\textbf{用前馈提升性能，但始终保留反馈作为安全网。}
+
+\vspace{0.5em}
+\begin{mdframed}[linewidth=1pt, innertopmargin=10pt, innerbottommargin=10pt]
+\textbf{案例分析：云台级联PID——为什么两个回路胜过一个}
+
+\vspace{0.3em}
+你想让云台指向特定角度。朴素做法：一个PID回路直接从角度误差控制到电机电压。这能用，但效果平平。原因如下，以及高手们实际怎么做。
+
+\textbf{单回路控制的问题：}
+
+从电压到角度的传递函数是二阶的（电机动态 + 速度到位置的积分）。单个PID必须同时处理快速的电气/电流动态和缓慢的机械动态。这就像让一个人同时开车又导航——勉强能做到，但压力很大。
+
+\textbf{级联（嵌套）回路方案：}
+
+用两个串联的PID控制器：
+\begin{enumerate}[nosep]
+    \item \textbf{内环（速度环）：}以1 kHz运行。输入：期望速度。输出：电机电压指令。该回路速度快，能迅速抑制扰动（摩擦、负载变化）。
+    \item \textbf{外环（位置环）：}以200 Hz运行。输入：期望角度。输出：期望速度（成为内环的设定值）。该回路处理较慢的位置跟踪。
+\end{enumerate}
+
+\textbf{为什么级联更好：}
+\begin{itemize}[nosep]
+    \item 每个回路处理一"层"动态，调整更简单——先调内环（忽略外环），再调外环。
+    \item 内环充当"屏障"——在外环感知到扰动之前，内环就已快速纠正。有人碰了你的云台，速度环在毫秒内就完成了补偿。
+    \item 各层次都有限幅：外环输出的速度指令天然有界，防止突然的大力矩。
+\end{itemize}
+
+\textbf{加入前馈：}
+
+再从轨迹规划器加入速度前馈：
+\[
+\omega_{\text{cmd}} = \underbrace{K_p(\theta_{\text{ref}} - \theta)}_{\text{外环PID}} + \underbrace{\dot{\theta}_{\text{ref}}}_{\text{前馈}}
+\]
+
+前馈给内环提供跟随参考轨迹所需的速度。外环PID只需纠正小的跟踪误差。结果：即使在快速运动时也能实现平滑、精确的跟踪。这是几乎所有顶尖RoboMaster竞赛队云台所采用的架构。
+
+\textbf{级联回路的经验法则：}
+\begin{itemize}[nosep]
+    \item 内环应比外环快5--10倍。
+    \item 从内到外调整：先调内环，再调外环。
+    \item 每个回路在上一层看来应像一个简单的一阶系统。
+\end{itemize}
+\end{mdframed}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{cascaded_pid.pdf}
+\caption{级联PID（蓝色）与单回路PID（红色）在云台电机上的对比。两者都跟踪90°设定值，但当扰动在 $t=1.5$s 发生时，级联架构恢复得更快，因为内速度环承受了冲击。}
+\end{figure}
+
+\subsection{PID 架构：单级、串级与并联串级}
+
+上述案例分析展示了串级 PID 在单轴上相比单回路 PID 的优势。在实际比赛中，机器人通常需要多轴协调控制（例如云台偏航 + 俯仰，底盘 X + Y + 旋转）。本节系统比较三种 PID 架构，并提供相应的代码实现。
+
+\subsubsection{架构一：单级 PID}
+
+最简单的架构：每个轴一个 PID 控制器，从位置误差直接输出电机电压。
+
+\[
+u(t) = K_p e(t) + K_i \int_0^t e(\tau)\,d\tau + K_d \frac{de(t)}{dt}, \qquad e(t) = r(t) - y(t)
+\]
+
+\textbf{优点：}实现简单，每个轴只需整定一组增益，计算开销最小。
+
+\textbf{局限：}单个控制器需同时处理快速动态（电气/电流）和慢速动态（机械/位置）。这种耦合使得整定困难——为加快跟踪而增大增益往往会引发振荡。抗扰动能力较弱，因为控制器只有在扰动传播到位置输出后才能做出反应。
+
+\subsubsection{架构二：串级（级联）PID}
+
+每个轴两个嵌套回路：外环产生速度（或电流）设定值，输入内环。
+
+\[
+\omega_{\text{cmd}} = \text{PID}_{\text{外环}}\bigl(\theta_{\text{ref}} - \theta\bigr), \qquad
+u = \text{PID}_{\text{内环}}\bigl(\omega_{\text{cmd}} - \omega\bigr)
+\]
+
+\textbf{优点：}
+\begin{itemize}[nosep]
+    \item 每个回路只处理一层动态，使整定变得简单（先内环，后外环）。
+    \item 内环在扰动传递到外环之前便将其抑制，抗扰动性能显著提升。
+    \item 天然的限幅保护：外环输出有界的速度指令，避免突然的大力矩。
+\end{itemize}
+
+\textbf{设计准则：}
+\begin{itemize}[nosep]
+    \item 内环带宽应为外环的 5--10 倍。
+    \item 从外环的视角看，内环应表现为一个简单的一阶系统（即整定良好、响应快、无超调）。
+    \item 由内而外整定：先在外环断开的条件下稳定并优化内环，再闭合外环。
+\end{itemize}
+
+\subsubsection{架构三：并联串级 PID（多轴协同）}
+
+在多轴系统（如偏航 + 俯仰的云台）中，每个轴各运行一个串级 PID 控制器，各轴\textit{并行}运行。各轴共享传感器数据，并可选择性地加入轴间耦合补偿。
+
+\textbf{耦合问题的重要性：}在云台上，俯仰运动会改变重心位置，对偏航轴产生力矩扰动。若不加以补偿，偏航控制器会将其视为未知扰动，反应迟缓。通过加入耦合前馈项，偏航控制器可预判俯仰运动并主动补偿：
+
+\[
+u_{\text{偏航}} = \text{串级PID}_{\text{偏航}}(\cdot) + k_{\text{耦合}} \cdot \dot{\theta}_{\text{俯仰}}
+\]
+
+\begin{verbatim}
+    // 含轴间耦合补偿的并联串级 PID
+    struct GimbalController {
+        CascadedPID yaw;
+        CascadedPID pitch;
+        float cross_yaw_from_pitch = 0.0f;  // 耦合增益
+
+        struct Output { float yaw_voltage; float pitch_voltage; };
+
+        Output update(float yaw_ref, float yaw_pos, float yaw_vel,
+                      float pitch_ref, float pitch_pos, float pitch_vel,
+                      float yaw_vel_ff = 0, float pitch_vel_ff = 0) {
+            // 耦合补偿：俯仰角速度对偏航的扰动
+            float cross_comp = cross_yaw_from_pitch * pitch_vel;
+
+            float u_pitch = pitch.update(pitch_ref, pitch_pos,
+                                         pitch_vel, pitch_vel_ff);
+            float u_yaw   = yaw.update(yaw_ref, yaw_pos,
+                                       yaw_vel, yaw_vel_ff)
+                          + cross_comp;
+            return {u_yaw, u_pitch};
+        }
+
+        void reset() { yaw.reset(); pitch.reset(); }
+    };
+\end{verbatim}
+
+\subsubsection{架构对比总结}
+
+\begin{center}
+\begin{tabular}{lccc}
+\toprule
+ & \textbf{单级 PID} & \textbf{串级 PID} & \textbf{并联串级} \\
+\midrule
+每轴回路数 & 1 & 2 & 2 \\
+整定难度 & 中等 & 低（分层整定） & 低（分层整定） \\
+抗扰动能力 & 慢 & 快 & 快 \\
+轴间耦合处理 & 无 & 无 & 可补偿 \\
+代码复杂度 & 最低 & 适中 & 适中 \\
+典型应用 & 简单执行器 & 单轴云台 & 多轴云台 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{pid_architectures.pdf}
+\caption{双轴云台上的 PID 架构对比。上图：偏航轴，在 $t=2$s 处受到外部扰动，在 $t=0.5$s 处受到来自俯仰运动的耦合扰动。下图：俯仰轴。含耦合补偿的并联串级架构（绿色）在扰动和耦合同时存在时提供了最平稳的偏航响应。}
+\end{figure}
+
+\textbf{实践建议：}对于任何具有多个受控轴的系统，建议采用并联串级架构。额外的代码复杂度极小（仅需一个结构体封装两个 \texttt{CascadedPID} 对象），而分层整定和耦合补偿带来的性能提升却十分显著。
+
+\subsection{轨迹生成（Trajectory Generation）：告诉电机去哪里}
+
+你不能直接把指令从 $0°$ 阶跃到 $90°$ 然后期望好事发生。电机不会瞬移。你需要一个平滑的\textbf{参考轨迹（reference trajectory）}——一条经过位置、速度、加速度的路径，要尊重执行器的物理限制。没有轨迹规划，你的PID立刻就饱和，积分饱和随之启动，等电机好不容易靠近 $90°$ 时，控制器已经在跟自己对打了。轨迹生成，是区分"我的炮塔能用"和"我的炮塔跟顶尖队一样"的分水岭。
+
+\subsubsection{梯形速度曲线（Trapezoidal Velocity Profile）}
+
+梯形曲线是运动控制的主力。给定移动距离 $d$、最大速度 $v_{\max}$ 和最大加速度 $a_{\max}$，产生三个阶段：
+
+\begin{enumerate}[nosep]
+    \item 从静止以 $a_{\max}$ \textbf{加速}至 $v_{\max}$
+    \item 以 $v_{\max}$ \textbf{匀速}行驶
+    \item 以 $-a_{\max}$ \textbf{减速}回到静止
+\end{enumerate}
+
+\textbf{时间与距离：}
+\begin{align}
+t_{\text{加速}} &= \frac{v_{\max}}{a_{\max}}, \qquad
+d_{\text{加速}} = \frac{1}{2}a_{\max}t_{\text{加速}}^2, \qquad
+d_{\text{匀速}} = d - 2\,d_{\text{加速}}
+\end{align}
+
+如果 $d_{\text{匀速}} < 0$，距离不足以达到 $v_{\max}$。曲线变为\textbf{三角形}：电机加速至峰值速度 $v_{\text{peak}} = \sqrt{a_{\max}\,d}$ 后立即减速，没有匀速阶段。
+
+\textbf{时刻 $t$ 的参考信号：}
+
+令 $t_1 = t_{\text{加速}}$，$t_2 = t_1 + d_{\text{匀速}}/v_{\max}$，$t_3 = t_2 + t_{\text{加速}}$。
+
+\begin{equation}
+\theta_{\text{ref}}(t) = \begin{cases}
+\tfrac{1}{2}a_{\max}t^2 & 0 \le t < t_1 \quad \text{（加速段）}\\[4pt]
+d_{\text{加速}} + v_{\max}(t - t_1) & t_1 \le t < t_2 \quad \text{（匀速段）}\\[4pt]
+d - \tfrac{1}{2}a_{\max}(t_3-t)^2 & t_2 \le t \le t_3 \quad \text{（减速段）}
+\end{cases}
+\end{equation}
+
+\begin{equation}
+\dot{\theta}_{\text{ref}}(t) = \begin{cases}
+a_{\max}\,t & 0 \le t < t_1 \\
+v_{\max} & t_1 \le t < t_2 \\
+a_{\max}(t_3 - t) & t_2 \le t \le t_3
+\end{cases}
+\qquad
+\ddot{\theta}_{\text{ref}}(t) = \begin{cases}
++a_{\max} & 0 \le t < t_1 \\
+0 & t_1 \le t < t_2 \\
+-a_{\max} & t_2 \le t \le t_3
+\end{cases}
+\end{equation}
+
+这三个信号是实现完整前馈增强控制器所需的全部内容（更多内容见下面的实践框）。
+
+\subsubsection{S形速度曲线（S-Curve Profile）}
+
+梯形曲线的加速度是不连续的——瞬间从 $0$ 跳变到 $a_{\max}$。这种突然的冲击（jerk）会激励机械共振，磨损齿轮，引起振动。\textbf{S形曲线}（或限制冲击的曲线）增加了第七个约束：加速度的变化率（冲击，$j_{\max}$）受到限制。
+
+这将三段式梯形曲线变为七段式曲线：
+\begin{enumerate}[nosep]
+    \item 冲击增加（加速度从0增加到 $a_{\max}$）
+    \item 恒定加速度 $a_{\max}$
+    \item 冲击减小（加速度从 $a_{\max}$ 减小到0）
+    \item 以 $v_{\max}$ 匀速行驶
+    \item 冲击减小（加速度变为 $-a_{\max}$）
+    \item 恒定减速度 $-a_{\max}$
+    \item 冲击增加（回到零加速度）
+\end{enumerate}
+
+结果是一个处处二阶连续可微的位置曲线——平滑到云台和精密机构几乎感觉不到运动开始。数学推导较为复杂，但实践中你很少需要从头实现：运动控制库（WPILib的 \texttt{TrapezoidProfile}、REV的Motion Magic等）已经帮你处理好了。
+
+\begin{mdframed}[linewidth=1pt, innertopmargin=10pt, innerbottommargin=10pt]
+\textbf{实践：如何选择曲线类型}
+
+\vspace{0.3em}
+\textbf{梯形曲线}适合90\%的竞赛应用：
+\begin{itemize}[nosep]
+    \item 驱动轮、飞轮、炮塔旋转
+    \item 实现和调试简单——三段、分段公式
+    \item 足够好用，除非你听到齿轮震颤或看到快速运动时的振荡
+\end{itemize}
+
+\textbf{S形曲线}适用于对平滑性要求严苛的场合：
+\begin{itemize}[nosep]
+    \item 云台和双轴稳定平台
+    \item 精密定位机构（相机滑轨、基于编码器的机械臂）
+    \item 任何担心齿轮磨损或振动的场合
+\end{itemize}
+
+\textbf{跟踪轨迹炮塔的完整前馈链：}
+
+在每个控制时间步，轨迹规划器输出三个数：$\theta_{\text{ref}}$、$\dot{\theta}_{\text{ref}}$、$\ddot{\theta}_{\text{ref}}$。全部利用起来：
+\[
+u = \underbrace{K_p\bigl(\theta_{\text{ref}} - \theta\bigr) + K_i\int(\cdot)\,dt + K_d\dot{e}}_{\text{外位置PID}}
+  + \underbrace{k_v\,\dot{\theta}_{\text{ref}}}_{\text{速度前馈}}
+  + \underbrace{k_a\,\ddot{\theta}_{\text{ref}}}_{\text{加速度前馈}}
+\]
+
+加速度前馈来自旋转的牛顿第二定律：$\tau = J\alpha$，因此 $k_a \approx J / k_{\tau}$，其中 $k_\tau$ 是电机的力矩常数。位置PID只需消除小的跟踪误差；前馈承担主要工作。
+\end{mdframed}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{trajectory_profiles.pdf}
+\caption{90°运动的梯形曲线（左）与S形曲线（右）对比。梯形曲线的加速度不连续（突然跳变），而S形曲线限制冲击以实现更平滑的运动。两者都生成用于前馈控制的位置、速度和加速度参考信号。}
+\end{figure}
+
+\newpage
