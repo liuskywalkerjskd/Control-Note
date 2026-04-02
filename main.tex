@@ -3202,6 +3202,175 @@ Compared to B\'{e}zier curves, cubic splines are \textbf{guaranteed to pass thro
 
 \newpage
 
+%=============================================================================
+\section{Outlook: Data-Driven and Learning-Based Control}
+%=============================================================================
+
+All the methods covered so far---PID, state-space, LQR, Kalman filtering, MPC---assume a known \emph{model} of the plant. In practice, however, obtaining an accurate model is often the hardest part. A new generation of techniques attempts to bypass or augment the modeling step by learning control policies directly from data. This chapter surveys these frontiers and discusses their relationship with classical control theory.
+
+\subsection{Data-Driven Control}
+
+\subsubsection{Motivation: From ``Model First, Control Second'' to ``Control Directly from Data''}
+
+The traditional pipeline is: collect data $\to$ system identification $\to$ build model $\to$ design controller. Each step introduces errors, and those errors compound. A natural question arises: \emph{can we skip the modeling step and design controllers directly from data?}
+
+\subsubsection{Willems' Fundamental Lemma}
+
+The theoretical foundation is \textbf{Willems' Fundamental Lemma (2005)}: for a linear time-invariant system, if an input--output trajectory of length $T$ satisfies a \emph{persistent excitation} condition of sufficient order, then \emph{all} possible trajectories of the system can be expressed as linear combinations of the columns of the data Hankel matrix:
+\[
+\begin{bmatrix} U_- \\ X_- \\ U_+ \\ X_+ \end{bmatrix} g = \begin{bmatrix} u_{\mathrm{ini}} \\ x_{\mathrm{ini}} \\ u \\ x \end{bmatrix},
+\]
+where $U_-, X_-$ are Hankel matrices constructed from historical data and $g$ is the coefficient vector to be determined.
+
+\textbf{Intuition:} A single sufficiently rich trajectory ``encodes'' the complete dynamics of the system---equivalent to knowing the $(A, B)$ matrices.
+
+\subsubsection{Data-Driven LQR}
+
+Using Willems' Lemma, the LQR problem
+\[
+\min_{K}\; \sum_{k=0}^{\infty} \bigl(x_k^\top Q\, x_k + u_k^\top R\, u_k\bigr)
+\]
+can be solved directly via data-consistency constraints constructed from the Hankel matrix, \emph{without identifying} $A$ or $B$.
+
+\textbf{Limitations:}
+\begin{itemize}[nosep]
+    \item The data must satisfy the persistent excitation condition---random noise is not enough; the input signal must be sufficiently rich.
+    \item Sensitive to measurement noise.
+    \item Currently limited to linear systems (nonlinear extensions are an active research area).
+\end{itemize}
+
+\subsubsection{Data-Enabled Predictive Control (DeePC)}
+
+DeePC (Data-Enabled Predictive Control) combines Willems' Lemma with MPC: the data Hankel matrix replaces the prediction model, and the predictive control problem is solved directly in data space. This preserves MPC's constraint-handling capability while eliminating the need for explicit system identification.
+
+\subsection{Reinforcement Learning and Control}
+
+Reinforcement learning (RL) generalizes optimal control to nonlinear systems with arbitrary cost functions and constraints.
+
+\subsubsection{Core Concepts}
+
+\begin{itemize}[nosep]
+    \item \textbf{Policy} $\pi(s) \to a$: a mapping from states to actions---i.e., a controller. In the linear-quadratic case, $\pi(x) = -Kx$ reduces to LQR.
+    \item \textbf{Value function} $V^\pi(s) = \mathbb{E}\bigl[\sum_{t=0}^{\infty} \gamma^t r_t \mid s_0 = s\bigr]$: the expected cumulative reward from a given state, analogous to the cost-to-go in dynamic programming.
+    \item \textbf{Policy gradient}: update the policy parameters $\theta$ along $\nabla_\theta J(\theta)$ to maximize expected reward.
+\end{itemize}
+
+\subsubsection{Two Paradigms}
+
+\begin{enumerate}[nosep]
+    \item \textbf{Model-free RL} (PPO, SAC, etc.): learns policies through trial and error without a dynamics model. Highly general, but \emph{sample efficiency} is extremely low---typically requiring millions of interactions, feasible only in simulation, with sim-to-real transfer needed for deployment.
+    \item \textbf{Model-based RL} (MBPO, Dreamer, etc.): first learns a dynamics model from data, then uses it for planning or policy optimization. More sample-efficient and closer in spirit to classical control.
+\end{enumerate}
+
+\subsubsection{Sim-to-Real Transfer}
+
+RL policies are usually trained in simulation, but a gap exists between simulation and the real system (the sim-to-real gap). Common bridging strategies:
+\begin{itemize}[nosep]
+    \item \textbf{Domain randomization}: randomize physical parameters (mass, friction, latency, etc.) during training, forcing the policy to learn behaviors robust to parameter variations.
+    \item \textbf{System identification and high-fidelity simulation}: carefully calibrate simulation parameters to narrow the sim-real gap.
+    \item \textbf{Fine-tuning}: pre-train in simulation, then fine-tune on the real system with a small amount of data.
+\end{itemize}
+
+\subsubsection{Success Stories and Current Status}
+
+RL has achieved remarkable results in research:
+\begin{itemize}[nosep]
+    \item \textbf{Legged locomotion}: MIT Mini Cheetah, ANYmal, and other quadrupeds have learned to walk and run on rough terrain via RL.
+    \item \textbf{Dexterous manipulation}: OpenAI's Rubik's cube solving, Google's robotic grasping.
+    \item \textbf{Drone racing}: ETH Z\"urich's Swift system beat human champions in drone racing.
+\end{itemize}
+
+\textbf{Yet RL remains rare in engineering competitions and industrial settings, because:}
+\begin{itemize}[nosep]
+    \item Training requires high-fidelity simulation environments, which are expensive to develop.
+    \item Learned policies are ``black boxes,'' making debugging extremely difficult.
+    \item Competition timelines are usually too short for the RL development cycle.
+    \item Safety and interpretability guarantees are insufficient.
+\end{itemize}
+
+\subsection{Trajectory Optimization and Optimal Control}
+
+The goal of optimal control is to find $u(t)$ that minimizes a cost functional:
+\[
+J = \int_0^T L\bigl(x(t), u(t)\bigr)\,\mathrm{d}t + \Phi\bigl(x(T)\bigr),
+\]
+subject to the dynamics $\dot{x} = f(x, u)$.
+
+\subsubsection{Two Solution Strategies}
+
+\begin{itemize}[nosep]
+    \item \textbf{Indirect methods} (Pontryagin's Maximum Principle): derive the adjoint equations to obtain necessary conditions, then solve a two-point boundary value problem. Mathematically elegant, but difficult to implement for systems with complex constraints.
+    \item \textbf{Direct methods} (collocation, multiple shooting): discretize the trajectory into decision variables and convert the problem into a large-scale nonlinear program (NLP). More practical---modern trajectory optimization tools universally adopt this strategy.
+\end{itemize}
+
+\subsubsection{iLQR and DDP}
+
+\textbf{Iterative LQR (iLQR)} and \textbf{Differential Dynamic Programming (DDP)} are the workhorse algorithms of modern robotic trajectory optimization: linearize the nonlinear dynamics around a nominal trajectory, solve the resulting LQR sub-problem to obtain a correction, update the trajectory, and repeat.
+
+\textbf{Connection to MPC:} Model predictive control is essentially trajectory optimization solved repeatedly in a receding-horizon fashion at each time step. When the dynamics are nonlinear, MPC internally uses iLQR or NLP solvers.
+
+\textbf{Common tools:} CasADi, Drake, ALTRO, Crocoddyl, MATLAB \texttt{fmincon}.
+
+\subsection{Neural Networks Meet Control}
+
+\subsubsection{Neural Networks as Controller Components}
+
+Neural networks need not replace the entire controller. A more practical approach is to embed them within specific modules of a classical control framework:
+\begin{itemize}[nosep]
+    \item \textbf{Learning dynamics models}: fit $\dot{x} = f_\theta(x, u)$ with a neural network, then use the learned model inside MPC or iLQR.
+    \item \textbf{Learning residual dynamics}: $\dot{x} = f_{\mathrm{phys}}(x, u) + f_\theta(x, u)$---let the network compensate for what the physics model fails to capture.
+    \item \textbf{Learning cost functions}: learn task objectives from human demonstrations (inverse reinforcement learning).
+\end{itemize}
+
+\subsubsection{Safety Constraints and Verifiability}
+
+Combining learning methods with safety guarantees is a hot research direction:
+\begin{itemize}[nosep]
+    \item \textbf{Control Barrier Functions (CBF)}: add a safety constraint layer to learned policies, ensuring the system state never leaves a safe set.
+    \item \textbf{Lyapunov neural networks}: train a neural network to simultaneously learn a controller and a Lyapunov function, thereby providing a stability proof.
+    \item \textbf{Reachability analysis}: compute the reachable set of the system under a learned policy and verify whether it satisfies safety requirements.
+\end{itemize}
+
+\subsection{Method Comparison at a Glance}
+
+\begin{center}
+\small
+\begin{tabular}{l c c c c}
+\toprule
+\textbf{Method} & \textbf{Model needed?} & \textbf{Handles nonlinearity?} & \textbf{Real-time?} & \textbf{Maturity} \\
+\midrule
+PID & No (empirical tuning) & Local & Yes & Industry standard \\
+LQR & Yes (linear) & No & Yes & Mature \\
+MPC (linear) & Yes (linear) & No & Yes & Mature \\
+NMPC & Yes (nonlinear) & Yes & Depends & Early industrial \\
+Data-driven LQR & No (data only) & No & Yes & Research frontier \\
+DeePC & No (data only) & Limited & Depends & Research frontier \\
+Model-based RL & Learned & Yes & Offline training & Research validated \\
+Model-free RL & No & Yes & Offline training & Research validated \\
+iLQR / DDP & Yes (nonlinear) & Yes & Near real-time & Research / early industrial \\
+Neural net + MPC & Hybrid & Yes & Depends & Research frontier \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Advice for the Reader}
+
+\begin{mdframed}
+\textbf{The big picture.}\;The boundary between control theory and machine learning is dissolving. Data-driven methods bring adaptability; learning-based methods bring the ability to handle complexity. But the foundations covered in this document---state-space modeling, stability analysis, observer design, optimal control---remain the \emph{bedrock} on which all of this is built.
+
+\textbf{A practical roadmap:}
+\begin{enumerate}[nosep]
+    \item \textbf{Master the classics first.} PID, LQR, MPC, Kalman filtering---these tools are sufficient for the vast majority of robotics applications, and they are reliable, debuggable, and theoretically grounded.
+    \item \textbf{Introduce data-driven techniques when classical methods hit a wall.} System hard to model? Try data-driven LQR/MPC. Environment varies widely? Consider adaptive control.
+    \item \textbf{Use RL for ``things classical methods cannot do.''} Extreme agility, high-dimensional dexterous manipulation, complex contact interactions---these are the scenarios where RL's advantages truly shine.
+    \item \textbf{Always keep a safety layer.} No matter how ``intelligent'' the controller, add control barrier functions or hardware safety limits to ensure the system never takes dangerous actions.
+\end{enumerate}
+
+A deep understanding of the classical foundations will make you a better user of advanced methods, not someone replaced by them.
+\end{mdframed}
+
+\newpage
+
 
 %=============================================================================
 \section{Appendix: Plug-and-Play C++ Modules}
@@ -4282,174 +4451,5 @@ Robot can flip/tumble past $\pm 90$\textdegree{} & Quaternion EKF (Section 6) \\
 Remember: theory is a tool, not an end goal. The best controller is the one that \textbf{works on the field}, not the one that looks most elegant on paper. Start simple (PID), understand your system, add complexity only when needed, and always, always test on real hardware.
 
 Good luck at your next competition. Go build something awesome.
-
-\newpage
-
-%=============================================================================
-\section{Outlook: Data-Driven and Learning-Based Control}
-%=============================================================================
-
-All the methods covered so far---PID, state-space, LQR, Kalman filtering, MPC---assume a known \emph{model} of the plant. In practice, however, obtaining an accurate model is often the hardest part. A new generation of techniques attempts to bypass or augment the modeling step by learning control policies directly from data. This chapter surveys these frontiers and discusses their relationship with classical control theory.
-
-\subsection{Data-Driven Control}
-
-\subsubsection{Motivation: From ``Model First, Control Second'' to ``Control Directly from Data''}
-
-The traditional pipeline is: collect data $\to$ system identification $\to$ build model $\to$ design controller. Each step introduces errors, and those errors compound. A natural question arises: \emph{can we skip the modeling step and design controllers directly from data?}
-
-\subsubsection{Willems' Fundamental Lemma}
-
-The theoretical foundation is \textbf{Willems' Fundamental Lemma (2005)}: for a linear time-invariant system, if an input--output trajectory of length $T$ satisfies a \emph{persistent excitation} condition of sufficient order, then \emph{all} possible trajectories of the system can be expressed as linear combinations of the columns of the data Hankel matrix:
-\[
-\begin{bmatrix} U_- \\ X_- \\ U_+ \\ X_+ \end{bmatrix} g = \begin{bmatrix} u_{\mathrm{ini}} \\ x_{\mathrm{ini}} \\ u \\ x \end{bmatrix},
-\]
-where $U_-, X_-$ are Hankel matrices constructed from historical data and $g$ is the coefficient vector to be determined.
-
-\textbf{Intuition:} A single sufficiently rich trajectory ``encodes'' the complete dynamics of the system---equivalent to knowing the $(A, B)$ matrices.
-
-\subsubsection{Data-Driven LQR}
-
-Using Willems' Lemma, the LQR problem
-\[
-\min_{K}\; \sum_{k=0}^{\infty} \bigl(x_k^\top Q\, x_k + u_k^\top R\, u_k\bigr)
-\]
-can be solved directly via data-consistency constraints constructed from the Hankel matrix, \emph{without identifying} $A$ or $B$.
-
-\textbf{Limitations:}
-\begin{itemize}[nosep]
-    \item The data must satisfy the persistent excitation condition---random noise is not enough; the input signal must be sufficiently rich.
-    \item Sensitive to measurement noise.
-    \item Currently limited to linear systems (nonlinear extensions are an active research area).
-\end{itemize}
-
-\subsubsection{Data-Enabled Predictive Control (DeePC)}
-
-DeePC (Data-Enabled Predictive Control) combines Willems' Lemma with MPC: the data Hankel matrix replaces the prediction model, and the predictive control problem is solved directly in data space. This preserves MPC's constraint-handling capability while eliminating the need for explicit system identification.
-
-\subsection{Reinforcement Learning and Control}
-
-Reinforcement learning (RL) generalizes optimal control to nonlinear systems with arbitrary cost functions and constraints.
-
-\subsubsection{Core Concepts}
-
-\begin{itemize}[nosep]
-    \item \textbf{Policy} $\pi(s) \to a$: a mapping from states to actions---i.e., a controller. In the linear-quadratic case, $\pi(x) = -Kx$ reduces to LQR.
-    \item \textbf{Value function} $V^\pi(s) = \mathbb{E}\bigl[\sum_{t=0}^{\infty} \gamma^t r_t \mid s_0 = s\bigr]$: the expected cumulative reward from a given state, analogous to the cost-to-go in dynamic programming.
-    \item \textbf{Policy gradient}: update the policy parameters $\theta$ along $\nabla_\theta J(\theta)$ to maximize expected reward.
-\end{itemize}
-
-\subsubsection{Two Paradigms}
-
-\begin{enumerate}[nosep]
-    \item \textbf{Model-free RL} (PPO, SAC, etc.): learns policies through trial and error without a dynamics model. Highly general, but \emph{sample efficiency} is extremely low---typically requiring millions of interactions, feasible only in simulation, with sim-to-real transfer needed for deployment.
-    \item \textbf{Model-based RL} (MBPO, Dreamer, etc.): first learns a dynamics model from data, then uses it for planning or policy optimization. More sample-efficient and closer in spirit to classical control.
-\end{enumerate}
-
-\subsubsection{Sim-to-Real Transfer}
-
-RL policies are usually trained in simulation, but a gap exists between simulation and the real system (the sim-to-real gap). Common bridging strategies:
-\begin{itemize}[nosep]
-    \item \textbf{Domain randomization}: randomize physical parameters (mass, friction, latency, etc.) during training, forcing the policy to learn behaviors robust to parameter variations.
-    \item \textbf{System identification and high-fidelity simulation}: carefully calibrate simulation parameters to narrow the sim-real gap.
-    \item \textbf{Fine-tuning}: pre-train in simulation, then fine-tune on the real system with a small amount of data.
-\end{itemize}
-
-\subsubsection{Success Stories and Current Status}
-
-RL has achieved remarkable results in research:
-\begin{itemize}[nosep]
-    \item \textbf{Legged locomotion}: MIT Mini Cheetah, ANYmal, and other quadrupeds have learned to walk and run on rough terrain via RL.
-    \item \textbf{Dexterous manipulation}: OpenAI's Rubik's cube solving, Google's robotic grasping.
-    \item \textbf{Drone racing}: ETH Z\"urich's Swift system beat human champions in drone racing.
-\end{itemize}
-
-\textbf{Yet RL remains rare in engineering competitions and industrial settings, because:}
-\begin{itemize}[nosep]
-    \item Training requires high-fidelity simulation environments, which are expensive to develop.
-    \item Learned policies are ``black boxes,'' making debugging extremely difficult.
-    \item Competition timelines are usually too short for the RL development cycle.
-    \item Safety and interpretability guarantees are insufficient.
-\end{itemize}
-
-\subsection{Trajectory Optimization and Optimal Control}
-
-The goal of optimal control is to find $u(t)$ that minimizes a cost functional:
-\[
-J = \int_0^T L\bigl(x(t), u(t)\bigr)\,\mathrm{d}t + \Phi\bigl(x(T)\bigr),
-\]
-subject to the dynamics $\dot{x} = f(x, u)$.
-
-\subsubsection{Two Solution Strategies}
-
-\begin{itemize}[nosep]
-    \item \textbf{Indirect methods} (Pontryagin's Maximum Principle): derive the adjoint equations to obtain necessary conditions, then solve a two-point boundary value problem. Mathematically elegant, but difficult to implement for systems with complex constraints.
-    \item \textbf{Direct methods} (collocation, multiple shooting): discretize the trajectory into decision variables and convert the problem into a large-scale nonlinear program (NLP). More practical---modern trajectory optimization tools universally adopt this strategy.
-\end{itemize}
-
-\subsubsection{iLQR and DDP}
-
-\textbf{Iterative LQR (iLQR)} and \textbf{Differential Dynamic Programming (DDP)} are the workhorse algorithms of modern robotic trajectory optimization: linearize the nonlinear dynamics around a nominal trajectory, solve the resulting LQR sub-problem to obtain a correction, update the trajectory, and repeat.
-
-\textbf{Connection to MPC:} Model predictive control is essentially trajectory optimization solved repeatedly in a receding-horizon fashion at each time step. When the dynamics are nonlinear, MPC internally uses iLQR or NLP solvers.
-
-\textbf{Common tools:} CasADi, Drake, ALTRO, Crocoddyl, MATLAB \texttt{fmincon}.
-
-\subsection{Neural Networks Meet Control}
-
-\subsubsection{Neural Networks as Controller Components}
-
-Neural networks need not replace the entire controller. A more practical approach is to embed them within specific modules of a classical control framework:
-\begin{itemize}[nosep]
-    \item \textbf{Learning dynamics models}: fit $\dot{x} = f_\theta(x, u)$ with a neural network, then use the learned model inside MPC or iLQR.
-    \item \textbf{Learning residual dynamics}: $\dot{x} = f_{\mathrm{phys}}(x, u) + f_\theta(x, u)$---let the network compensate for what the physics model fails to capture.
-    \item \textbf{Learning cost functions}: learn task objectives from human demonstrations (inverse reinforcement learning).
-\end{itemize}
-
-\subsubsection{Safety Constraints and Verifiability}
-
-Combining learning methods with safety guarantees is a hot research direction:
-\begin{itemize}[nosep]
-    \item \textbf{Control Barrier Functions (CBF)}: add a safety constraint layer to learned policies, ensuring the system state never leaves a safe set.
-    \item \textbf{Lyapunov neural networks}: train a neural network to simultaneously learn a controller and a Lyapunov function, thereby providing a stability proof.
-    \item \textbf{Reachability analysis}: compute the reachable set of the system under a learned policy and verify whether it satisfies safety requirements.
-\end{itemize}
-
-\subsection{Method Comparison at a Glance}
-
-\begin{center}
-\small
-\begin{tabular}{l c c c c}
-\toprule
-\textbf{Method} & \textbf{Model needed?} & \textbf{Handles nonlinearity?} & \textbf{Real-time?} & \textbf{Maturity} \\
-\midrule
-PID & No (empirical tuning) & Local & Yes & Industry standard \\
-LQR & Yes (linear) & No & Yes & Mature \\
-MPC (linear) & Yes (linear) & No & Yes & Mature \\
-NMPC & Yes (nonlinear) & Yes & Depends & Early industrial \\
-Data-driven LQR & No (data only) & No & Yes & Research frontier \\
-DeePC & No (data only) & Limited & Depends & Research frontier \\
-Model-based RL & Learned & Yes & Offline training & Research validated \\
-Model-free RL & No & Yes & Offline training & Research validated \\
-iLQR / DDP & Yes (nonlinear) & Yes & Near real-time & Research / early industrial \\
-Neural net + MPC & Hybrid & Yes & Depends & Research frontier \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-\subsection{Advice for the Reader}
-
-\begin{mdframed}
-\textbf{The big picture.}\;The boundary between control theory and machine learning is dissolving. Data-driven methods bring adaptability; learning-based methods bring the ability to handle complexity. But the foundations covered in this document---state-space modeling, stability analysis, observer design, optimal control---remain the \emph{bedrock} on which all of this is built.
-
-\textbf{A practical roadmap:}
-\begin{enumerate}[nosep]
-    \item \textbf{Master the classics first.} PID, LQR, MPC, Kalman filtering---these tools are sufficient for the vast majority of robotics applications, and they are reliable, debuggable, and theoretically grounded.
-    \item \textbf{Introduce data-driven techniques when classical methods hit a wall.} System hard to model? Try data-driven LQR/MPC. Environment varies widely? Consider adaptive control.
-    \item \textbf{Use RL for ``things classical methods cannot do.''} Extreme agility, high-dimensional dexterous manipulation, complex contact interactions---these are the scenarios where RL's advantages truly shine.
-    \item \textbf{Always keep a safety layer.} No matter how ``intelligent'' the controller, add control barrier functions or hardware safety limits to ensure the system never takes dangerous actions.
-\end{enumerate}
-
-A deep understanding of the classical foundations will make you a better user of advanced methods, not someone replaced by them.
-\end{mdframed}
 
 \end{document}
