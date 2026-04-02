@@ -34,19 +34,19 @@
 \section{Introduction}
 %=============================================================================
 
-If you are reading this, you are probably an engineering student who has just joined a robotics competition team, staring at a motor that refuses to spin at the speed you want, or a gimbal that oscillates like it is possessed. Welcome. You are in the right place.
+This document is \textbf{not} a textbook. Textbooks are great---rigorous, comprehensive, and excellent at putting you to sleep at 2 AM. This is a \textit{lecture note}, written by someone who learned control the hard way: by breaking robots first, then reading the theory to figure out why.
 
-This document is \textbf{not} a control theory textbook. Textbooks are great---they are rigorous, comprehensive, and excellent at putting you to sleep at 2 AM. This is a \textit{lecture note}, written by someone who learned most of this the hard way: by breaking robots first, then reading the theory to figure out why.
-
-Our goal here is simple: to give you enough theoretical understanding to \textbf{design, tune, and debug controllers} on real hardware. We will cover the math, but we will always ask: ``Why does this matter when my robot is on the field?''
+The goal is simple: give you enough theoretical foundation to \textbf{design, tune, and debug controllers} on real hardware. We will cover the math, but for every concept we will always ask: ``What is this actually for when the robot hits the field?''
 
 \subsection*{Who Is This For?}
 
-Undergraduate students in their early and middle years, especially those involved in competitions like RoboMaster, FIRST Robotics, RoboCup, or similar events. We assume you have taken (or are currently taking) calculus and basic linear algebra. If you know what a derivative is and can multiply matrices without crying, you are ready.
+Undergraduate students in their early and middle years. Prerequisites: calculus and basic linear algebra (taken or currently taking). If you know what a derivative is and can multiply matrices without breaking down, you are ready.
 
-\subsection*{How This Note Is Organized}
+\subsection*{What Is Special About This Note's Structure?}
 
-We start with \textbf{Digital Signal Processing}---because before you can control anything, you need clean data from your sensors. Then we learn how to \textbf{describe systems} mathematically, which is a fancy way of saying ``write down what your motor actually does.'' Next comes \textbf{Classical Control Theory}, where PID lives---the bread and butter of competition robotics. After that, we tackle \textbf{Discretization and Implementation}, bridging the gap between elegant math and the harsh reality of a microcontroller running at a fixed clock rate. Finally, we visit \textbf{Modern Control Theory} for the tools that separate good robots from great ones: LQR, MPC, and Kalman filters.
+Almost no control textbook on the market has a similar content arrangement.
+
+We start with \textbf{Digital Signal Processing}---because before you can control anything, you need clean data from your sensors. Then we learn how to \textbf{describe systems} mathematically---a fancy way of saying ``write down what your motor actually does.'' Next comes \textbf{Classical Control Theory}, PID's home turf---the bread and butter of competition robotics. After that, \textbf{Discretization and Implementation} bridges the gap between elegant math and the harsh reality of a microcontroller running at a fixed clock rate. Finally, \textbf{Modern Control Theory} gives you the tools that turn a ``working'' robot into a ``good'' robot: LQR, MPC, and Kalman filters.
 
 Let us begin.
 
