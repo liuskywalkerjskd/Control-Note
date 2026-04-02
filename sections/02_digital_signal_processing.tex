@@ -275,6 +275,186 @@ Choosing the right filter comes down to answering three questions:
     \item When in doubt, plot the filtered output alongside the raw signal and check if the result makes physical sense.
 \end{itemize}
 
+\subsubsection{Digital Filter Structures: FIR vs.\ IIR}
+
+So far we have described filters using continuous-time transfer functions $H(s)$.
+Once you discretize them (covered in detail in Section~5), you end up with one of
+two fundamental digital filter structures: \textbf{FIR} and \textbf{IIR}.
+Understanding the difference is essential for choosing the right implementation on
+your microcontroller.
+
+\paragraph{FIR (Finite Impulse Response).}
+An FIR filter computes the output as a weighted sum of the current and past input
+samples only---no feedback:
+
+\begin{equation}
+y[n] = \sum_{k=0}^{M} b_k \, x[n-k]
+\end{equation}
+
+In the $z$-domain:
+\begin{equation}
+H(z) = \sum_{k=0}^{M} b_k \, z^{-k}
+\end{equation}
+
+FIR filters have \textbf{only zeros} (no poles except trivially at $z = 0$), which
+gives them two important properties:
+\begin{itemize}
+    \item \textbf{Always stable}---no feedback means no risk of runaway oscillation.
+    \item \textbf{Linear phase} is achievable by making the coefficients symmetric
+          ($b_k = b_{M-k}$). This means every frequency component is delayed by the
+          same amount, so the signal shape is perfectly preserved.
+\end{itemize}
+
+The price you pay is \textbf{filter order}: to get a sharp cutoff you may need
+$M = 50$--$200$ taps, which means storing that many past samples and performing
+that many multiplications per output sample.
+
+\textbf{Common FIR design methods:}
+\begin{itemize}
+    \item \textbf{Window method}---truncate the ideal impulse response and apply a
+          window function (Hamming, Blackman, Kaiser) to reduce spectral leakage.
+    \item \textbf{Frequency sampling}---specify the desired magnitude response at
+          DFT sample points and inverse-transform.
+    \item \textbf{Parks--McClellan (Remez)}---an optimal algorithm that minimizes
+          the maximum approximation error (equiripple design).
+\end{itemize}
+
+\paragraph{IIR (Infinite Impulse Response).}
+An IIR filter uses \textit{both} past inputs and past outputs---it has a feedback path:
+
+\begin{equation}
+y[n] = \sum_{k=0}^{M} b_k \, x[n-k] \;-\; \sum_{k=1}^{N} a_k \, y[n-k]
+\end{equation}
+
+In the $z$-domain:
+\begin{equation}
+H(z) = \frac{\displaystyle\sum_{k=0}^{M} b_k \, z^{-k}}
+            {1 + \displaystyle\sum_{k=1}^{N} a_k \, z^{-k}}
+     = \frac{B(z)}{A(z)}
+\end{equation}
+
+IIR filters have \textbf{both poles and zeros}. The poles enable sharp frequency
+selectivity with very low order (a 4th-order IIR can outperform a 50th-order FIR),
+but they come with risks:
+\begin{itemize}
+    \item \textbf{Potentially unstable}---if any pole lies outside the unit circle
+          ($|z| > 1$), the output grows without bound.
+    \item \textbf{Nonlinear phase}---different frequencies are delayed by different
+          amounts, which distorts the signal shape.
+    \item \textbf{Coefficient sensitivity}---on fixed-point microcontrollers,
+          rounding the coefficients can shift poles enough to cause instability.
+\end{itemize}
+
+\textbf{Classical IIR design} starts from an analog prototype and maps it to
+discrete time:
+\begin{itemize}
+    \item \textbf{Butterworth}---maximally flat passband, monotonic rolloff. The
+          ``vanilla'' choice; sounds boring but is the right default 80\% of the time.
+    \item \textbf{Chebyshev Type~I}---equiripple in the passband, monotonic in the
+          stopband. Sharper transition than Butterworth for the same order, at the
+          cost of passband ripple.
+    \item \textbf{Chebyshev Type~II}---monotonic in the passband, equiripple in the
+          stopband. Less common but useful when passband flatness matters more.
+    \item \textbf{Elliptic (Cauer)}---equiripple in \textit{both} bands. Gives the
+          sharpest possible transition for a given filter order, but with ripple
+          everywhere.
+\end{itemize}
+
+The two main analog-to-digital mappings are:
+\begin{itemize}
+    \item \textbf{Bilinear transform}: $z = \dfrac{1 + (sT_s/2)}{1 - (sT_s/2)}$.
+          This is the workhorse method. It maps the entire $j\omega$ axis onto the
+          unit circle with no aliasing, but introduces \textit{frequency warping}:
+          analog frequencies get compressed near the Nyquist frequency.
+          You compensate by \textbf{pre-warping} the critical frequencies before
+          designing the analog prototype.
+    \item \textbf{Impulse invariance}: $h[n] = T_s \cdot h_a(nT_s)$.
+          Preserves the time-domain impulse response, but suffers from
+          \textit{aliasing} if the analog filter is not sufficiently band-limited.
+          Mainly used for low-pass and band-pass designs.
+\end{itemize}
+
+\paragraph{Head-to-head comparison.}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{Property} & \textbf{FIR} & \textbf{IIR} \\
+\midrule
+Stability & Always stable & Must verify (poles inside unit circle) \\
+Phase & Linear phase achievable & Nonlinear phase \\
+Order for sharp cutoff & High (50--200+) & Low (4--10 typical) \\
+Computation per sample & $M+1$ multiplies & $M+N+1$, but $M,N$ are small \\
+Latency & Higher (longer filter) & Lower \\
+Design from analog prototype & No & Yes \\
+Coefficient sensitivity & Low & High \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Practical guidelines.}
+\begin{itemize}
+    \item Need \textbf{linear phase} (audio, symmetric pulse shaping, communications)?
+          Use \textbf{FIR}.
+    \item Need a \textbf{sharp cutoff with minimal computation} (real-time control
+          loops, resource-constrained MCUs)? Use \textbf{IIR}.
+    \item Need \textbf{guaranteed stability} without careful analysis? Use
+          \textbf{FIR}.
+    \item For higher-order IIR filters, \textbf{always} implement as cascaded
+          second-order sections (biquads) to reduce coefficient sensitivity:
+\end{itemize}
+\begin{equation}
+H(z) = \prod_{i=1}^{L}
+       \frac{b_{0i} + b_{1i}\,z^{-1} + b_{2i}\,z^{-2}}
+            {1   + a_{1i}\,z^{-1} + a_{2i}\,z^{-2}}
+\end{equation}
+
+Each section is a ``biquad''---a second-order IIR filter that is simple to
+implement and numerically well-behaved. Cascading $L$ biquads gives you a
+$2L$-th order filter while keeping coefficient quantization effects local to each
+section.
+
+\textbf{Example: a biquad in C}
+\begin{verbatim}
+    // One biquad section
+    float biquad(float x, float *state,
+                 float b0, float b1, float b2,
+                 float a1, float a2) {
+        float y = b0*x + state[0];
+        state[0] = b1*x - a1*y + state[1];
+        state[1] = b2*x - a2*y;
+        return y;
+    }
+\end{verbatim}
+
+This is the \textbf{transposed direct-form~II} structure---two state variables per
+biquad, numerically stable, and the standard choice for floating-point
+implementations.
+
+\vspace{0.5em}
+\begin{mdframed}[linewidth=1pt, innertopmargin=10pt, innerbottommargin=10pt]
+\textbf{Quick Decision Flowchart}
+
+\vspace{0.3em}
+\begin{enumerate}[nosep]
+    \item Is the application phase-sensitive (e.g., symmetric waveform matters)?
+          $\rightarrow$ \textbf{FIR} with symmetric coefficients.
+    \item Is real-time computation tight (MCU running a fast control loop)?
+          $\rightarrow$ \textbf{IIR} (Butterworth or Chebyshev), implemented as
+          cascaded biquads.
+    \item Is the filter order moderate and your platform has enough memory?
+          $\rightarrow$ Either works; default to \textbf{FIR} for simplicity and
+          robustness.
+    \item Do you need the sharpest possible transition band for a given order?
+          $\rightarrow$ \textbf{IIR} with an Elliptic prototype.
+\end{enumerate}
+
+\textbf{Rule of thumb for robotics:} Most sensor-smoothing filters on embedded
+systems are low-order IIR (often just 1st or 2nd order Butterworth). FIR filters
+shine in audio processing, communications, and any application where linear phase
+is non-negotiable.
+\end{mdframed}
+
 \subsection{Z-Transform}
 
 Everything we have discussed so far with the Laplace transform lives in the continuous world. But your microcontroller is digital---it works with samples, not continuous signals. The \textbf{Z-transform} is the discrete-time equivalent of the Laplace transform.

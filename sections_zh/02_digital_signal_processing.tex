@@ -275,6 +275,138 @@ H(s) = \frac{s}{s + \omega_c}
     \item 拿不定主意时，把滤波后的输出和原始信号画在一起，检查结果是否符合物理直觉。
 \end{itemize}
 
+\subsubsection{数字滤波器结构：FIR 与 IIR}
+
+前面我们用连续时间传递函数 $H(s)$ 来描述滤波器。一旦将它们离散化（详见第~5~节），你会得到两种基本的数字滤波器结构：\textbf{FIR} 和 \textbf{IIR}。理解二者的区别，对于在单片机上选择正确的实现方式至关重要。
+
+\paragraph{FIR（有限冲激响应，Finite Impulse Response）。}
+FIR 滤波器的输出仅由当前和过去的输入采样的加权和决定——没有反馈：
+
+\begin{equation}
+y[n] = \sum_{k=0}^{M} b_k \, x[n-k]
+\end{equation}
+
+$z$ 域表示：
+\begin{equation}
+H(z) = \sum_{k=0}^{M} b_k \, z^{-k}
+\end{equation}
+
+FIR 滤波器\textbf{只有零点}（除了 $z = 0$ 处的平凡极点外没有极点），这带来两个重要性质：
+\begin{itemize}
+    \item \textbf{永远稳定}——没有反馈就不存在失控振荡的风险。
+    \item \textbf{可以实现线性相位}——只要系数对称（$b_k = b_{M-k}$），每个频率分量的延迟相同，信号波形被完美保持。
+\end{itemize}
+
+代价是\textbf{滤波器阶数}：要实现陡峭的截止，可能需要 $M = 50$--$200$ 个抽头（tap），这意味着要存储那么多过去的采样值，每个输出采样要做那么多次乘法。
+
+\textbf{常用 FIR 设计方法：}
+\begin{itemize}
+    \item \textbf{窗函数法（Window Method）}——截断理想冲激响应，乘以窗函数（汉明窗 Hamming、布莱克曼窗 Blackman、凯泽窗 Kaiser）以减少频谱泄漏。
+    \item \textbf{频率采样法（Frequency Sampling）}——在 DFT 采样点上指定期望的幅度响应，再做逆变换。
+    \item \textbf{Parks--McClellan（Remez）算法}——一种最优算法，最小化最大逼近误差（等纹波设计）。
+\end{itemize}
+
+\paragraph{IIR（无限冲激响应，Infinite Impulse Response）。}
+IIR 滤波器\textit{同时}使用过去的输入和过去的输出——存在反馈通路：
+
+\begin{equation}
+y[n] = \sum_{k=0}^{M} b_k \, x[n-k] \;-\; \sum_{k=1}^{N} a_k \, y[n-k]
+\end{equation}
+
+$z$ 域表示：
+\begin{equation}
+H(z) = \frac{\displaystyle\sum_{k=0}^{M} b_k \, z^{-k}}
+            {1 + \displaystyle\sum_{k=1}^{N} a_k \, z^{-k}}
+     = \frac{B(z)}{A(z)}
+\end{equation}
+
+IIR 滤波器\textbf{既有极点又有零点}。极点使得用很低的阶数就能实现很尖锐的频率选择性（一个 4 阶 IIR 可以超过一个 50 阶 FIR），但也带来风险：
+\begin{itemize}
+    \item \textbf{可能不稳定}——如果任何极点位于单位圆外（$|z| > 1$），输出将无界增长。
+    \item \textbf{非线性相位}——不同频率的延迟不同，信号波形会失真。
+    \item \textbf{系数敏感}——在定点单片机上，系数的舍入可能将极点推出单位圆，导致不稳定。
+\end{itemize}
+
+\textbf{经典 IIR 设计}从模拟原型出发，映射到离散时间：
+\begin{itemize}
+    \item \textbf{巴特沃斯（Butterworth）}——通带最大平坦，单调滚降。"香草味"选项；听起来平淡无奇，但 80\% 的情况下它就是正确的默认选择。
+    \item \textbf{切比雪夫 I 型（Chebyshev Type~I）}——通带等纹波，阻带单调。同阶数下比巴特沃斯过渡更陡，代价是通带有纹波。
+    \item \textbf{切比雪夫 II 型（Chebyshev Type~II）}——通带单调，阻带等纹波。不太常见，但在通带平坦度更重要时很有用。
+    \item \textbf{椭圆滤波器（Elliptic / Cauer）}——通带和阻带\textit{都是}等纹波。在给定阶数下过渡带最窄，但到处都有纹波。
+\end{itemize}
+
+两种主要的模拟到数字映射方法：
+\begin{itemize}
+    \item \textbf{双线性变换（Bilinear Transform）}：$z = \dfrac{1 + (sT_s/2)}{1 - (sT_s/2)}$。
+          这是最常用的方法。它将整个 $j\omega$ 轴映射到单位圆上，不产生混叠，但引入\textit{频率畸变}：模拟频率在靠近奈奎斯特频率处会被压缩。
+          补偿方法是在设计模拟原型之前先对关键频率做\textbf{预畸变（pre-warping）}。
+    \item \textbf{冲激不变法（Impulse Invariance）}：$h[n] = T_s \cdot h_a(nT_s)$。
+          保持时域冲激响应不变，但如果模拟滤波器不够带限，会出现\textit{混叠}。主要用于低通和带通设计。
+\end{itemize}
+
+\paragraph{正面对比。}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{特性} & \textbf{FIR} & \textbf{IIR} \\
+\midrule
+稳定性 & 永远稳定 & 需验证（极点在单位圆内） \\
+相位 & 可实现线性相位 & 非线性相位 \\
+实现陡峭截止的阶数 & 高（50--200+） & 低（典型 4--10） \\
+每个采样的计算量 & $M+1$ 次乘法 & $M+N+1$ 次，但 $M,N$ 很小 \\
+延迟 & 较高（滤波器更长） & 较低 \\
+能否从模拟原型设计 & 否 & 能 \\
+系数量化敏感度 & 低 & 高 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{实用选择指南。}
+\begin{itemize}
+    \item 需要\textbf{线性相位}（音频、对称脉冲整形、通信）？用 \textbf{FIR}。
+    \item 需要\textbf{陡峭截止且计算量小}（实时控制回路、资源受限的 MCU）？用 \textbf{IIR}。
+    \item 需要\textbf{保证稳定}且不想仔细分析？用 \textbf{FIR}。
+    \item 对于高阶 IIR 滤波器，\textbf{一定}要用级联二阶段（biquad）实现，以降低系数敏感度：
+\end{itemize}
+\begin{equation}
+H(z) = \prod_{i=1}^{L}
+       \frac{b_{0i} + b_{1i}\,z^{-1} + b_{2i}\,z^{-2}}
+            {1   + a_{1i}\,z^{-1} + a_{2i}\,z^{-2}}
+\end{equation}
+
+每一段是一个"biquad"——一个二阶 IIR 滤波器，实现简单、数值稳定。$L$ 个 biquad 级联得到 $2L$ 阶滤波器，同时将系数量化效应限制在每一段内部。
+
+\textbf{示例：C 语言中的 biquad}
+\begin{verbatim}
+    // 一个 biquad 段
+    float biquad(float x, float *state,
+                 float b0, float b1, float b2,
+                 float a1, float a2) {
+        float y = b0*x + state[0];
+        state[0] = b1*x - a1*y + state[1];
+        state[1] = b2*x - a2*y;
+        return y;
+    }
+\end{verbatim}
+
+这是\textbf{转置直接 II 型（Transposed Direct-Form~II）}结构——每个 biquad 只需两个状态变量，数值稳定，是浮点实现的标准选择。
+
+\vspace{0.5em}
+\begin{mdframed}[linewidth=1pt, innertopmargin=10pt, innerbottommargin=10pt]
+\textbf{快速决策流程}
+
+\vspace{0.3em}
+\begin{enumerate}[nosep]
+    \item 应用对相位敏感吗（例如波形对称性很重要）？$\rightarrow$ \textbf{FIR}，使用对称系数。
+    \item 实时计算很紧张吗（MCU 运行快速控制回路）？$\rightarrow$ \textbf{IIR}（巴特沃斯或切比雪夫），用级联 biquad 实现。
+    \item 滤波器阶数适中且平台内存充足？$\rightarrow$ 两者皆可；默认选 \textbf{FIR}，更简单更鲁棒。
+    \item 需要在给定阶数下实现最陡的过渡带？$\rightarrow$ \textbf{IIR}，使用椭圆原型。
+\end{enumerate}
+
+\textbf{机器人领域的经验法则：}嵌入式系统上大多数传感器平滑滤波器都是低阶 IIR（通常只是 1 阶或 2 阶巴特沃斯）。FIR 滤波器在音频处理、通信以及任何线性相位不可妥协的应用中大放异彩。
+\end{mdframed}
+
 \subsection{Z 变换}
 
 我们之前用拉普拉斯变换讨论的一切，都活在连续世界里。但你的单片机是数字的——它处理的是离散采样，而不是连续信号。\textbf{Z 变换（Z-Transform）}是拉普拉斯变换在离散时间中的对应物。
