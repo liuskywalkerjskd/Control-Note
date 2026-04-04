@@ -63,20 +63,56 @@ Control-Note/
 
 直接导入仓库，并使用 **XeLaTeX** 编译。
 
-### 本地编译
+### 本地编译（推荐）
 
-安装带 CJK 支持的 TeX Live 后执行：
+项目提供了编译脚本，前置步骤如下：
+
+1. **安装 TeX Live**（用户空间安装，无需 sudo）：
+   ```bash
+   # 下载安装器
+   cd /tmp && wget https://mirror.ctan.org/systems/texlive/tlnet/install-tl-unx.tar.gz
+   tar xzf install-tl-unx.tar.gz && cd install-tl-*/
+
+   # 运行安装器（选择 "small" 方案以节省空间）
+   perl install-tl
+
+   # 安装完成后，将 TeX Live 添加到 PATH（根据实际年份调整）
+   echo 'export PATH="$HOME/texlive/2026/bin/x86_64-linux:$PATH"' >> ~/.bashrc
+   source ~/.bashrc
+
+   # 安装项目所需的 LaTeX 包
+   tlmgr install latexmk ctex mdframed zref needspace booktabs enumitem float caption
+   ```
+
+2. **使用脚本编译 PDF**：
+   ```bash
+   # 编译中英文双版本
+   ./scripts/build.sh all
+
+   # 仅编译英文版
+   ./scripts/build.sh en
+
+   # 仅编译中文版
+   ./scripts/build.sh zh
+
+   # 清理辅助文件
+   ./scripts/build.sh clean
+   ```
+
+   输出文件：
+   - `build/Control_Theory_Note.pdf`（英文版）
+   - `build/Control_Theory_Note_cn.pdf`（中文版）
+
+### 手动编译
+
+如果你不想使用脚本，也可以直接运行：
 
 ```bash
-xelatex main_zh.tex
-xelatex main_zh.tex
-```
+# 英文版（pdflatex）
+latexmk -pdf -interaction=nonstopmode main.tex
 
-英文版也可使用：
-
-```bash
-xelatex main.tex
-xelatex main.tex
+# 中文版（xelatex）
+latexmk -xelatex -interaction=nonstopmode main_zh.tex
 ```
 
 ## 重新生成图表

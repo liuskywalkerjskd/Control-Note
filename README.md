@@ -63,20 +63,56 @@ Control-Note/
 
 Import this repository and compile with **XeLaTeX**.
 
-### Local Build
+### Local Build (Recommended)
 
-Install TeX Live with CJK support, then run:
+A build script is provided for local compilation. Prerequisites:
+
+1. **Install TeX Live** (user-space, no sudo required):
+   ```bash
+   # Download the installer
+   cd /tmp && wget https://mirror.ctan.org/systems/texlive/tlnet/install-tl-unx.tar.gz
+   tar xzf install-tl-unx.tar.gz && cd install-tl-*/
+
+   # Run the installer (choose "small" scheme to save space)
+   perl install-tl
+
+   # After installation, add TeX Live to your PATH (adjust the year as needed)
+   echo 'export PATH="$HOME/texlive/2026/bin/x86_64-linux:$PATH"' >> ~/.bashrc
+   source ~/.bashrc
+
+   # Install required packages
+   tlmgr install latexmk ctex mdframed zref needspace booktabs enumitem float caption
+   ```
+
+2. **Build PDFs** using the provided script:
+   ```bash
+   # Build both English and Chinese PDFs
+   ./scripts/build.sh all
+
+   # Build English only
+   ./scripts/build.sh en
+
+   # Build Chinese only
+   ./scripts/build.sh zh
+
+   # Clean auxiliary files
+   ./scripts/build.sh clean
+   ```
+
+   Output files:
+   - `build/Control_Theory_Note.pdf` (English)
+   - `build/Control_Theory_Note_cn.pdf` (Chinese)
+
+### Manual Build
+
+If you prefer to compile manually:
 
 ```bash
-xelatex main_zh.tex
-xelatex main_zh.tex
-```
+# English (pdflatex)
+latexmk -pdf -interaction=nonstopmode main.tex
 
-You can similarly build the English document with:
-
-```bash
-xelatex main.tex
-xelatex main.tex
+# Chinese (xelatex)
+latexmk -xelatex -interaction=nonstopmode main_zh.tex
 ```
 
 ## Regenerate Figures

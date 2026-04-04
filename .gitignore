@@ -1,0 +1,13 @@
+# LaTeX auxiliary files
+*.aux
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.toc
+*.xdv
+*.synctex.gz
+
+# PDF output in root (build/ PDFs are tracked)
+/main.pdf
+/main_zh.pdf
