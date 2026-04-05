@@ -1,0 +1,321 @@
+%=============================================================================
+\section{姿态与旋转表示}
+%=============================================================================
+
+在估计或控制姿态之前（第 6 章大量使用了欧拉角和四元数），我们需要对旋转的数学基础有扎实的理解。本章从零开始搭建这一基础。
+
+%-----------------------------------------------------------------------------
+\subsection{坐标系}
+%-----------------------------------------------------------------------------
+
+三维空间里描述姿态，第一件事是约定坐标系。
+
+\textbf{右手定则：}伸出右手——拇指 = $x$，食指 = $y$，中指 = $z$。三个轴的正方向就这么定了。右手四指从 $x$ 轴弯向 $y$ 轴时，大拇指指向 $z$ 轴。
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{coord_rh_lh.pdf}
+  \caption{右手坐标系与左手坐标系。右手系中 $\hat{x} \times \hat{y} = \hat{z}$；左手系中 $\hat{x} \times \hat{y} = -\hat{z}$。}
+\end{figure}
+
+\textbf{右手系 vs 左手系：}机器人学、航空航天、物理学用右手系。部分图形引擎（DirectX、Unity 默认）用左手系。两者混在一起会导致旋转方向反转——在调 bug 之前，先确认你所有的库、传感器和可视化工具用的是同一种手系。
+
+\textbf{常用坐标系：}
+\begin{itemize}
+    \item \textbf{世界系 / 惯性系（World / Inertial Frame）}——固定在地面（或认为固定），作为全局参考。
+    \item \textbf{机体系（Body Frame）}——固定在刚体上，随它一起旋转。
+\end{itemize}
+
+本书采用 \textbf{NWU（北-西-上）}：$x$ 指向北（前方），$y$ 指向西（左方），$z$ 指向上。这是贯穿我们竞赛机器人的约定——前方为 $+x$，左方为 $+y$，上方为 $+z$。它是右手系，且与机体系的「$x$ 朝前」约定一致。
+
+\textbf{其他常见约定：}
+\begin{itemize}
+    \item \textbf{NED（北-东-下）}——航空航天惯用，$z$ 轴指向地心。
+    \item \textbf{ENU（东-北-上）}——大地测量和部分机器人框架使用，$z$ 轴指向天空。
+\end{itemize}
+三者之间差一个轴重排加可能的符号翻转。跨领域对接时务必对齐。
+
+\textbf{机体系（Body Frame）}在 NWU 约定下：$x_b$ 沿机器人前进方向，$y_b$ 指向左侧，$z_b$ 指向上方。世界系和机体系在零姿态时完全重合。
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.75\textwidth]{coord_world_body.pdf}
+  \caption{世界坐标系（固定）与机体坐标系（随机器人运动）。旋转矩阵 $R$ 描述机体系相对于世界系的朝向。}
+\end{figure}
+
+%-----------------------------------------------------------------------------
+\subsection{旋转矩阵}
+%-----------------------------------------------------------------------------
+
+\subsubsection{定义与性质}
+
+旋转矩阵 $R$ 属于特殊正交群 $\mathrm{SO}(3)$，满足两条性质：
+\begin{enumerate}
+    \item \textbf{正交性：}$R^T R = I$（列向量互相正交且长度为 1）。
+    \item \textbf{行列式为 1：}$\det(R) = 1$（排除了镜像变换，那种是 $\det = -1$）。
+\end{enumerate}
+
+\textbf{物理含义：}$R$ 的每一列是原坐标系的基向量旋转后的方向。换个角度说，$R$ 的每一行是机体系坐标轴在世界系中的表达。
+
+\textbf{基本旋转矩阵：}绕三个坐标轴分别旋转角度 $\theta$：
+
+\begin{equation}
+R_x(\theta) = \begin{bmatrix} 1 & 0 & 0 \\ 0 & \cos\theta & -\sin\theta \\ 0 & \sin\theta & \cos\theta \end{bmatrix}
+\end{equation}
+
+\begin{equation}
+R_y(\theta) = \begin{bmatrix} \cos\theta & 0 & \sin\theta \\ 0 & 1 & 0 \\ -\sin\theta & 0 & \cos\theta \end{bmatrix}
+\end{equation}
+
+\begin{equation}
+R_z(\theta) = \begin{bmatrix} \cos\theta & -\sin\theta & 0 \\ \sin\theta & \cos\theta & 0 \\ 0 & 0 & 1 \end{bmatrix}
+\end{equation}
+
+注意 $R_y$ 的符号和另外两个不一样（正弦项位置不同）。这是为了保持右手旋转正方向的一致性。
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.85\textwidth]{rotation_active_passive.pdf}
+  \caption{同一个旋转矩阵的两种解读。主动旋转：向量移动。被动旋转：坐标系移动。都用同一个 $R$，但概念图景不同。}
+\end{figure}
+
+\subsubsection{旋转矩阵的两种解读}
+
+\textbf{主动旋转（Active Rotation）：}旋转向量本身，坐标系不动。你把一根棍子从位置 A 转到位置 B——棍子动了，你的眼睛没动。
+
+\textbf{被动旋转（Passive Rotation）：}向量不动，换一个观察它的坐标系。同一根棍子，从世界系的角度描述和从机体系的角度描述，坐标不同——但棍子没动。
+
+数学上：
+\begin{itemize}
+    \item $\mathbf{v}_{\text{world}} = R \cdot \mathbf{v}_{\text{body}}$（将机体系中的向量变换到世界系）
+    \item $\mathbf{v}_{\text{body}} = R^T \cdot \mathbf{v}_{\text{world}}$（将世界系中的向量变换到机体系）
+\end{itemize}
+
+\textbf{这是最常见的混淆源。}当你在代码里发现旋转方向反了，八成是主动/被动搞混了。碰到这种 bug，先冷静地查一下 $R$ 和 $R^T$ 有没有用对。
+
+\subsubsection{旋转的复合：左乘与右乘}
+
+两次旋转怎么合成？
+
+\begin{equation}
+R_{\text{total}} = R_2 \cdot R_1
+\end{equation}
+
+这表示"先做 $R_1$，再做 $R_2$"——\textbf{从右往左读}。新手容易搞反，多写几遍就习惯了。
+
+\textbf{内旋（Intrinsic Rotation）vs 外旋（Extrinsic Rotation）：}
+\begin{itemize}
+    \item \textbf{内旋}——绕旋转后的机体轴转。每次旋转的轴都会随着之前的旋转而改变。对应\textbf{右乘}：$R = R_1 \cdot R_2 \cdot R_3$（按时间顺序从左往右）。
+    \item \textbf{外旋}——绕固定的世界轴转。无论转了多少次，轴都不变。对应\textbf{左乘}：$R = R_3 \cdot R_2 \cdot R_1$（按时间顺序从右往左）。
+\end{itemize}
+
+\textbf{关键等价关系：}ZYX 顺序的内旋 = XYZ 顺序的外旋。具体来说，机体系下先绕 $z$ 转 $\psi$、再绕 $y$ 转 $\theta$、再绕 $x$ 转 $\phi$（ZYX 内旋），等价于世界系下先绕 $x$ 转 $\phi$、再绕 $y$ 转 $\theta$、再绕 $z$ 转 $\psi$（XYZ 外旋），合成旋转矩阵为：
+\begin{equation}
+R = R_z(\psi) \cdot R_y(\theta) \cdot R_x(\phi)
+\end{equation}
+
+%-----------------------------------------------------------------------------
+\subsection{欧拉角}
+%-----------------------------------------------------------------------------
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{euler_angles.pdf}
+  \caption{逐步构建 ZYX 旋转。左：仅偏航（$\psi = 30°$）。中：偏航 + 俯仰（$\theta = 20°$）。右：偏航 + 俯仰 + 横滚（$\phi = 15°$）。浅色轴为世界系；深色粗轴为机体系。}
+\end{figure}
+
+\subsubsection{定义与约定}
+
+三次旋转可以完全描述一个姿态（三个自由度）。旋转序列的选择有 12 种：6 种 Tait-Bryan 型（三个不同轴，如 XYZ、ZYX）和 6 种经典欧拉型（首尾相同，如 ZYZ、XZX）。
+
+机器人和航空工程最常用的是\textbf{ZYX 顺序}（偏航 yaw $\psi$ → 俯仰 pitch $\theta$ → 横滚 roll $\phi$），旋转矩阵为：
+
+\begin{equation}
+R = R_z(\psi) \cdot R_y(\theta) \cdot R_x(\phi)
+\end{equation}
+
+写出完整矩阵：
+\begin{equation}
+R = \begin{bmatrix}
+\cos\psi\cos\theta & \cos\psi\sin\theta\sin\phi - \sin\psi\cos\phi & \cos\psi\sin\theta\cos\phi + \sin\psi\sin\phi \\
+\sin\psi\cos\theta & \sin\psi\sin\theta\sin\phi + \cos\psi\cos\phi & \sin\psi\sin\theta\cos\phi - \cos\psi\sin\phi \\
+-\sin\theta & \cos\theta\sin\phi & \cos\theta\cos\phi
+\end{bmatrix}
+\end{equation}
+
+\textbf{从旋转矩阵提取欧拉角：}给定旋转矩阵 $R = [r_{ij}]$，反解：
+\begin{align}
+\theta &= -\arcsin(r_{31}) \\
+\phi &= \mathrm{atan2}(r_{32},\; r_{33}) \\
+\psi &= \mathrm{atan2}(r_{21},\; r_{11})
+\end{align}
+
+这里用 $\mathrm{atan2}$ 是因为 $\arctan$ 分不清象限。$\mathrm{atan2}(y, x)$ 同时考虑了 $x$ 和 $y$ 的符号，给出 $(-\pi, \pi]$ 内的正确角度。
+
+\subsubsection{万向锁（Gimbal Lock）}
+
+\textbf{问题：}当俯仰角 $\theta = \pm 90°$ 时，偏航和横滚变成了绕同一根轴的旋转——你丢掉了一个自由度。
+
+\textbf{数学展示：}令 $\theta = 90°$，则 $\cos\theta = 0$，$\sin\theta = 1$，旋转矩阵退化为：
+\begin{equation}
+R = \begin{bmatrix}
+0 & \cos\psi\sin\phi - \sin\psi\cos\phi & \cos\psi\cos\phi + \sin\psi\sin\phi \\
+0 & \sin\psi\sin\phi + \cos\psi\cos\phi & \sin\psi\cos\phi - \cos\psi\sin\phi \\
+-1 & 0 & 0
+\end{bmatrix}
+= \begin{bmatrix}
+0 & -\sin(\psi - \phi) & \cos(\psi - \phi) \\
+0 & \cos(\psi - \phi) & \sin(\psi - \phi) \\
+-1 & 0 & 0
+\end{bmatrix}
+\end{equation}
+
+看到了吗？$\psi$ 和 $\phi$ 只以差值 $(\psi - \phi)$ 的形式出现——你能确定它们的差，但无法分别确定各自的值。三个独立参数变成了两个。这就是万向锁。
+
+\textbf{物理类比：}三轴万向节（gyroscope gimbal）在某个角度下，内外两个环对齐了，整个机构只能在两个方向上运动。航天器、相机稳定器上都能见到这个问题。
+
+\textbf{实际影响：}EKF 中，欧拉角运动学方程包含 $\tan\theta$ 和 $1/\cos\theta$ 项。当 $\theta \to \pm 90°$ 时，这些项趋向无穷大——状态估计数值爆炸。
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.85\textwidth]{gimbal_lock.pdf}
+  \caption{万向锁。左：正常工作——三个万向环提供三个独立自由度。右：俯仰角达到 $90°$ 时，内环和外环对齐，偏航和横滚退化为同一轴（虚线环），丢失一个自由度。}
+\end{figure}
+
+\textbf{结论：}欧拉角直观，但有奇异性。需要一种无奇异的旋转表示——这就引出了四元数。
+
+%-----------------------------------------------------------------------------
+\subsection{四元数}
+%-----------------------------------------------------------------------------
+
+\subsubsection{轴角旋转：通往四元数的桥梁}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.6\textwidth]{axis_angle.pdf}
+  \caption{轴角旋转：向量 $\mathbf{v}$ 绕轴 $\hat{n}$ 旋转角度 $\theta$ 得到 $\mathbf{v}'$。虚线为到旋转轴的投影。}
+\end{figure}
+
+\textbf{欧拉旋转定理（Euler's Rotation Theorem）：}任何三维旋转都等价于绕某个固定轴 $\hat{\mathbf{n}}$（单位向量）旋转某个角度 $\theta$。三次欧拉角旋转也不例外——它们最终等效于一个轴加一个角。
+
+\textbf{罗德里格斯旋转公式（Rodrigues' Rotation Formula）：}给定旋转轴 $\hat{\mathbf{n}}$ 和角度 $\theta$，向量 $\mathbf{v}$ 旋转后变成：
+\begin{equation}
+\mathbf{v}' = \mathbf{v}\cos\theta + (\hat{\mathbf{n}} \times \mathbf{v})\sin\theta + \hat{\mathbf{n}}(\hat{\mathbf{n}} \cdot \mathbf{v})(1 - \cos\theta)
+\end{equation}
+
+\textbf{几何直觉：}把 $\mathbf{v}$ 分解成两部分——平行于 $\hat{\mathbf{n}}$ 的分量（投影，旋转时不变）和垂直于 $\hat{\mathbf{n}}$ 的分量（在垂直平面内转 $\theta$）。公式里三项依次对应：原始垂直分量 $\times \cos\theta$、叉积方向分量 $\times \sin\theta$、平行分量的补偿。
+
+\textbf{轴角到旋转矩阵：}将上式写成矩阵形式：
+\begin{equation}
+R = I\cos\theta + (1 - \cos\theta)\hat{\mathbf{n}}\hat{\mathbf{n}}^T + \sin\theta\,[\hat{\mathbf{n}}]_{\times}
+\end{equation}
+
+其中 $[\hat{\mathbf{n}}]_{\times}$ 是反对称矩阵（skew-symmetric matrix），定义为：
+\begin{equation}
+[\hat{\mathbf{n}}]_{\times} = \begin{bmatrix} 0 & -n_z & n_y \\ n_z & 0 & -n_x \\ -n_y & n_x & 0 \end{bmatrix}
+\end{equation}
+使得 $[\hat{\mathbf{n}}]_{\times}\mathbf{v} = \hat{\mathbf{n}} \times \mathbf{v}$。
+
+\subsubsection{从轴角到四元数}
+
+轴角表示有一个实用问题：$\theta$ 的周期性（$\theta$ 和 $\theta + 2\pi$ 是同一个旋转）、$\theta = 0$ 时轴不确定。四元数用一种更优雅的方式编码同样的信息：
+
+\begin{equation}
+\mathbf{q} = \begin{bmatrix} q_w \\ q_x \\ q_y \\ q_z \end{bmatrix} = \begin{bmatrix} \cos(\theta/2) \\ \sin(\theta/2)\,n_x \\ \sin(\theta/2)\,n_y \\ \sin(\theta/2)\,n_z \end{bmatrix} = \begin{bmatrix} \cos(\theta/2) \\ \sin(\theta/2)\,\hat{\mathbf{n}} \end{bmatrix}
+\end{equation}
+
+$q_w$ 叫标量部分，$(q_x, q_y, q_z)$ 叫向量部分。
+
+\textbf{为什么是 $\theta/2$ 而不是 $\theta$？}因为四元数是 $\mathrm{SO}(3)$ 的\textbf{二重覆盖}：$\mathbf{q}$ 和 $-\mathbf{q}$ 代表同一个旋转。你可以把它想象成"旋转空间的球面"——从北极出发走半圈 ($\theta/2$) 就够了，走全圈 ($\theta$) 会绕回来。这种二重覆盖正是四元数能避免奇异性的深层原因。
+
+\textbf{单位四元数约束：}$\|\mathbf{q}\| = q_w^2 + q_x^2 + q_y^2 + q_z^2 = 1$。四个分量、一个约束，所以自由度是 3——正好和三维旋转一致。
+
+\subsubsection{四元数运算}
+
+\textbf{四元数乘法（Hamilton 积）：}两个四元数 $\mathbf{p} = [p_w,\, \mathbf{p}_v]$ 和 $\mathbf{q} = [q_w,\, \mathbf{q}_v]$ 的乘积为：
+\begin{equation}
+\mathbf{p} \otimes \mathbf{q} = \begin{bmatrix} p_w q_w - \mathbf{p}_v \cdot \mathbf{q}_v \\ p_w \mathbf{q}_v + q_w \mathbf{p}_v + \mathbf{p}_v \times \mathbf{q}_v \end{bmatrix}
+\end{equation}
+
+注意叉积 $\mathbf{p}_v \times \mathbf{q}_v$ 的存在——它使得四元数乘法\textbf{不满足交换律}：$\mathbf{p} \otimes \mathbf{q} \neq \mathbf{q} \otimes \mathbf{p}$（一般情况下）。旋转不可交换，所以表示它的代数也不能交换，合情合理。
+
+\textbf{用四元数旋转向量：}将向量 $\mathbf{v} \in \mathbb{R}^3$ 写成纯四元数 $[0;\, \mathbf{v}]$，旋转后的向量为：
+\begin{equation}
+\begin{bmatrix} 0 \\ \mathbf{v}' \end{bmatrix} = \mathbf{q} \otimes \begin{bmatrix} 0 \\ \mathbf{v} \end{bmatrix} \otimes \mathbf{q}^*
+\end{equation}
+
+这个 $\mathbf{q} \otimes (\cdot) \otimes \mathbf{q}^*$ 的"三明治"结构自动保证了结果仍然是纯四元数（标量部分为零），而且正好等于 $R\mathbf{v}$。
+
+\textbf{复合旋转：}先做 $\mathbf{q}_1$ 再做 $\mathbf{q}_2$：
+\begin{equation}
+\mathbf{q}_{\text{total}} = \mathbf{q}_2 \otimes \mathbf{q}_1
+\end{equation}
+
+和旋转矩阵一样，从右往左读。
+
+\textbf{逆 / 共轭：}单位四元数的逆就是共轭：
+\begin{equation}
+\mathbf{q}^* = \mathbf{q}^{-1} = \begin{bmatrix} q_w \\ -q_x \\ -q_y \\ -q_z \end{bmatrix}
+\end{equation}
+
+物理含义：反向旋转。$\mathbf{q} \otimes \mathbf{q}^* = [1,\, 0,\, 0,\, 0]$（单位元，零旋转）。
+
+\textbf{四元数 → 旋转矩阵：}
+\begin{equation}
+R = \begin{bmatrix}
+1 - 2(q_y^2 + q_z^2) & 2(q_x q_y - q_w q_z) & 2(q_x q_z + q_w q_y) \\
+2(q_x q_y + q_w q_z) & 1 - 2(q_x^2 + q_z^2) & 2(q_y q_z - q_w q_x) \\
+2(q_x q_z - q_w q_y) & 2(q_y q_z + q_w q_x) & 1 - 2(q_x^2 + q_y^2)
+\end{bmatrix}
+\end{equation}
+
+\textbf{四元数 → 欧拉角（ZYX 顺序）：}
+\begin{align}
+\phi &= \mathrm{atan2}\!\big(2(q_w q_x + q_y q_z),\; 1 - 2(q_x^2 + q_y^2)\big) \\
+\theta &= \arcsin\!\big(2(q_w q_y - q_z q_x)\big) \\
+\psi &= \mathrm{atan2}\!\big(2(q_w q_z + q_x q_y),\; 1 - 2(q_y^2 + q_z^2)\big)
+\end{align}
+
+注意 $\arcsin$ 的参数必须在 $[-1, 1]$ 内。浮点误差可能导致微小越界，工程代码中记得做 clamp。
+
+\subsubsection{四元数的优势}
+
+为什么实际系统（飞控、SLAM、游戏引擎）几乎清一色用四元数？
+
+\begin{itemize}
+    \item \textbf{无万向锁。}四元数在整个 $\mathrm{SO}(3)$ 上光滑无奇异。
+    \item \textbf{紧凑。}4 个数 vs 旋转矩阵的 9 个数。
+    \item \textbf{高效复合。}四元数乘法需要 16 次乘法 + 12 次加法；矩阵乘法需要 27 次乘法 + 18 次加法。
+    \item \textbf{约束简单。}1 个约束（$\|\mathbf{q}\| = 1$）vs 旋转矩阵的 6 个约束（正交 + 行列式）。归一化只需除以模长。
+    \item \textbf{SLERP 插值。}球面线性插值（Spherical Linear Interpolation）可以在两个姿态之间匀速、无跳变地过渡——动画和轨迹规划的利器。
+\end{itemize}
+
+%-----------------------------------------------------------------------------
+\subsection{实用总结}
+%-----------------------------------------------------------------------------
+
+\begin{center}
+\begin{tabular}{lcccc}
+\hline
+& \textbf{旋转矩阵} & \textbf{欧拉角} & \textbf{四元数} & \textbf{轴角} \\
+\hline
+参数数量 & 9 & 3 & 4 & 4 ($\theta + \hat{\mathbf{n}}$) \\
+约束数量 & 6 & 0 & 1 & 1 ($\|\hat{\mathbf{n}}\| = 1$) \\
+自由度 & 3 & 3 & 3 & 3 \\
+奇异性 & 无 & 万向锁 & 无 & $\theta = 0$ 时轴不确定 \\
+复合方式 & 矩阵乘法 & 无简洁公式 & 四元数乘法 & 无简洁公式 \\
+插值 & 不方便 & 不均匀 & SLERP & 不方便 \\
+直觉 & 中等 & 最直观 & 需要习惯 & 几何直观好 \\
+\hline
+\end{tabular}
+\end{center}
+
+\textbf{工程原则：}
+\begin{itemize}
+    \item \textbf{内部计算}用四元数——高效、无奇异、易归一化。
+    \item \textbf{人机界面}用欧拉角——"偏航 45°、俯仰 10°"比四元数好理解一百倍。
+    \item \textbf{矩阵运算}（如坐标变换、雅可比推导）用旋转矩阵——线性代数工具链最成熟。
+    \item \textbf{可视化和调试}时在三者之间来回转换——别嫌麻烦，转换公式上面全给了。
+\end{itemize}
+
+有了这些基础，你现在可以理解现代控制章节中基于四元数的 EKF。核心原则：\textbf{计算用四元数，显示用欧拉角。}

@@ -21,13 +21,15 @@ If you can follow derivatives and matrix multiplication, you are ready.
 
 | # | Chapter | Key Topics |
 |---|---------|------------|
+| - | **Two Numbers: $e$ and $\pi$** | Why $\pi$ governs periodicity and $e$ governs decay; Euler's formula unifies both |
 | 1 | **Introduction** | Motivation, learning path, how to use this guide |
-| 2 | **Digital Signal Processing** | Frequency-domain basics, Laplace/Fourier transforms, LPF/complementary/notch filters, sensor noise |
-| 3 | **System Description** | Transfer functions, state-space models, poles & zeros, stability, time/frequency-domain analysis |
-| 4 | **Classical Control** | PID (single/cascade/parallel), tuning methods, feedforward, trajectory generation |
-| 5 | **Discretization & Implementation** | ZOH, Tustin, matched Z-transform, embedded implementation concerns |
-| 6 | **Modern Control** | State feedback, LQR, observability, Kalman filter, EKF, LQG, linear MPC |
-| 7 | **Future Prospects** | Data-driven control, DeePC, reinforcement learning, iLQR/DDP, learning + control |
+| 2 | **Digital Signal Processing** | Frequency-domain basics, Laplace/Fourier transforms, poles & zeros intro, LPF/BPF/HPF/notch filters, Z-transform |
+| 3 | **System Description** | Transfer functions, state-space models, stability, 2nd-order systems, DC motor modeling (brushed & BLDC/FOC) |
+| 4 | **Classical Control** | Feedback fundamentals, Bode plots, PID (single/cascade/parallel), tuning methods, feedforward, system identification |
+| 5 | **Discretization & Implementation** | ZOH, Tustin, matched Z-transform, FIR/IIR filter design, fixed-point, embedded implementation |
+| 6 | **Modern Control** | Controllability/observability, LQR, MPC, TinyMPC, Luenberger observer, Kalman/EKF, LQG, trajectory planning |
+| 7 | **Attitude & Rotation** | Coordinate frames (NWU), rotation matrices, Euler angles, gimbal lock, axis-angle, quaternions |
+| 8 | **Outlook** | Data-driven control, Koopman operator, adaptive control, RL, diffusion policies, VLAs, neural ODEs, event-triggered control |
 | A | **Appendix: Plug-and-Play C++ Modules** | Header-only, embedded-friendly algorithm modules |
 
 ## Engineering-Workflow-Oriented Structure

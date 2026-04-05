@@ -1,0 +1,411 @@
+%=============================================================================
+\section{Attitude and Rotation Representation}
+%=============================================================================
+
+Before we can estimate or control orientation (Ch6 uses Euler angles and quaternions extensively), we need a solid foundation in how rotations work mathematically. This chapter builds that foundation from scratch.
+
+Why does this matter for robotics? Every time you read an IMU, command a gimbal, or fuse sensor data in an EKF, you are working with rotations. Get the math wrong---mix up a convention, compose rotations in the wrong order, or hit a singularity---and your robot will do something unexpected. The good news: the core ideas are not hard. They just need to be understood once, carefully.
+
+%-----------------------------------------------------------------------------
+\subsection{Coordinate Frames}
+%-----------------------------------------------------------------------------
+
+All of 3D robotics begins with a choice: \textit{which way do the axes point?}
+
+\subsubsection{The Right-Hand Rule}
+
+Hold out your right hand. Point your thumb along the $x$-axis, your index finger along $y$, and curl your middle finger---it points along $z$. This is a \textbf{right-handed coordinate frame}, and it is the universal standard in robotics and aerospace.
+
+Several conventions exist that all use the right-hand rule but differ in axis assignment. In this book, we adopt:
+
+\textbf{NWU (North-West-Up):} $x$ points north (forward), $y$ points west (left), $z$ points up. This is the convention used throughout our competition robots---forward is $+x$, left is $+y$, up is $+z$. It is a right-handed frame and matches the body-frame convention where $x$ is ``forward.''
+
+Other common conventions you will encounter:
+\begin{itemize}[nosep]
+    \item \textbf{NED (North-East-Down):} $x$ north, $y$ east, $z$ down. Standard in aerospace and many IMU datasheets. Positive $z$ is ``down,'' so altitude is negative $z$.
+    \item \textbf{ENU (East-North-Up):} $x$ east, $y$ north, $z$ up. Common in ROS and geographic mapping.
+\end{itemize}
+
+All three are perfectly valid right-handed frames. The critical thing is to pick one and be consistent. If your IMU outputs NED data and your control algorithm expects NWU, you need to convert ($y_{\text{NWU}} = -y_{\text{NED}}$, $z_{\text{NWU}} = -z_{\text{NED}}$). This is one of the most common sources of bugs in robotics software.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{coord_rh_lh.pdf}
+  \caption{Right-handed vs left-handed coordinate frames. In a right-handed frame, the cross product $\hat{x} \times \hat{y} = \hat{z}$; in a left-handed frame, $\hat{x} \times \hat{y} = -\hat{z}$.}
+\end{figure}
+
+\subsubsection{Right-Hand vs Left-Hand Frames}
+
+A \textbf{left-handed} frame is what you get if you use your left hand instead. Some graphics engines (notably DirectX and Unity's default) use left-handed frames because it makes the $z$-axis point ``into the screen,'' which is convenient for rendering. Most robotics software uses right-handed frames. If you mix conventions---say, importing a mesh from a left-handed graphics tool into a right-handed robotics simulator---rotations will appear mirrored. Always check the convention.
+
+\subsubsection{Common Frames in Robotics}
+
+Two frames appear in virtually every robotics problem:
+
+\begin{itemize}[nosep]
+    \item \textbf{World (inertial) frame:} Fixed to the ground (or to the Earth, if you are working at scales where Earth's rotation matters). This is the ``global'' reference. We often denote it with a superscript $W$ or subscript $\text{world}$.
+    \item \textbf{Body frame:} Fixed to the robot. It moves and rotates with the robot. In our NWU convention, $x$ points forward, $y$ points left, and $z$ points up. Denoted with $B$ or $\text{body}$.
+\end{itemize}
+
+The central question of attitude representation is: \textit{how do we describe the orientation of the body frame relative to the world frame?}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.75\textwidth]{coord_world_body.pdf}
+  \caption{World frame (fixed) and body frame (moves with the robot). The rotation matrix $R$ describes how the body frame is oriented relative to the world frame.}
+\end{figure}
+
+%-----------------------------------------------------------------------------
+\subsection{Rotation Matrices}
+%-----------------------------------------------------------------------------
+
+\subsubsection{Definition and Properties}
+
+A rotation matrix $R$ is a $3 \times 3$ matrix that belongs to the \textbf{special orthogonal group} $\mathrm{SO}(3)$:
+\begin{equation}
+\mathrm{SO}(3) = \{ R \in \mathbb{R}^{3 \times 3} \mid R^T R = I, \; \det(R) = +1 \}
+\end{equation}
+
+The condition $R^T R = I$ (orthogonality) means the columns of $R$ are mutually perpendicular unit vectors. The condition $\det(R) = +1$ distinguishes proper rotations from reflections (which have $\det = -1$).
+
+\textbf{Physical meaning:} Each column of $R$ tells you where the corresponding original basis vector ends up after the rotation. If $R = [\mathbf{r}_1 \; \mathbf{r}_2 \; \mathbf{r}_3]$, then $\mathbf{r}_1$ is the image of $\hat{x}$, $\mathbf{r}_2$ is the image of $\hat{y}$, and $\mathbf{r}_3$ is the image of $\hat{z}$. Equivalently, the \textit{rows} of $R$ are the body-frame axes expressed in world coordinates.
+
+The three elementary rotation matrices (counterclockwise when looking from the positive axis toward the origin) are:
+
+\begin{equation}
+R_x(\theta) = \begin{bmatrix} 1 & 0 & 0 \\ 0 & \cos\theta & -\sin\theta \\ 0 & \sin\theta & \cos\theta \end{bmatrix}
+\end{equation}
+
+\begin{equation}
+R_y(\theta) = \begin{bmatrix} \cos\theta & 0 & \sin\theta \\ 0 & 1 & 0 \\ -\sin\theta & 0 & \cos\theta \end{bmatrix}
+\end{equation}
+
+\begin{equation}
+R_z(\theta) = \begin{bmatrix} \cos\theta & -\sin\theta & 0 \\ \sin\theta & \cos\theta & 0 \\ 0 & 0 & 1 \end{bmatrix}
+\end{equation}
+
+Note the ``odd one out'': $R_y$ has the $-\sin\theta$ in the top-right and $+\sin\theta$ in the bottom-left, which is the transpose of what you might expect. This is because the $y$-axis rotation cycles $z \to x$ (not $x \to z$), and consistency with the right-hand rule requires the sign flip.
+
+\subsubsection{What Rotation Matrices Actually Do}
+
+There are two ways to interpret the same rotation matrix, and confusing them is a guaranteed source of bugs.
+
+\textbf{Interpretation 1: Active (alibi) rotation.} The matrix physically rotates a vector to a new position in the \textit{same} coordinate frame. Think of grabbing a vector and spinning it.
+
+\textbf{Interpretation 2: Passive (alias) rotation.} The matrix re-expresses the same physical vector in a \textit{different} coordinate frame. The vector does not move; we just describe it from a new viewpoint.
+
+Mathematically, the active rotation of $\mathbf{v}$ by angle $\theta$ about the $z$-axis and the passive transformation from frame $A$ to frame $B$ (where $B$ is rotated by $-\theta$ relative to $A$) use the same matrix. The difference is purely in interpretation.
+
+For robotics, the most important convention is:
+\begin{equation}
+\mathbf{v}_{\text{world}} = R \, \mathbf{v}_{\text{body}}
+\quad \Longleftrightarrow \quad
+\mathbf{v}_{\text{body}} = R^T \mathbf{v}_{\text{world}}
+\end{equation}
+
+Here $R$ is the rotation matrix that transforms vectors from the body frame to the world frame (sometimes written $R^W_B$ or $R_{\text{body} \to \text{world}}$). To go the other way, use $R^T = R^{-1}$---the beauty of orthogonal matrices is that the inverse is just the transpose.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.85\textwidth]{rotation_active_passive.pdf}
+  \caption{Two interpretations of the same rotation matrix. Active: the vector moves. Passive: the coordinate frame moves. Both use the same $R$, but the conceptual picture is different.}
+\end{figure}
+
+\vspace{0.5em}
+\begin{mdframed}[linewidth=1pt, innertopmargin=10pt, innerbottommargin=10pt]
+\textbf{The \#1 source of confusion:} Different textbooks and libraries use opposite conventions. Some define $R$ as world-to-body; others as body-to-world. When you import a rotation matrix from a library, \textit{always check which convention it uses}. If you get it backwards, every transformed vector will be wrong, and the error will look like your robot is mirrored or spinning the wrong way.
+\end{mdframed}
+
+\subsubsection{Composing Rotations: Left vs Right Multiplication}
+
+Suppose you want to apply rotation $R_1$ first, then rotation $R_2$. The combined rotation is:
+\begin{equation}
+R_{\text{total}} = R_2 \cdot R_1
+\end{equation}
+
+This is \textbf{right-to-left} order: the rotation applied first is on the right. This follows from the associativity of matrix multiplication: $R_2 (R_1 \mathbf{v}) = (R_2 R_1) \mathbf{v}$.
+
+Now, here is where things get subtle. There are two ways to build up a sequence of rotations:
+
+\textbf{Extrinsic rotations (world-fixed axes):} Each successive rotation is about an axis of the fixed world frame. The total rotation is built by \textit{pre-multiplying} (multiplying on the left):
+\[
+R_{\text{total}} = R_3 \cdot R_2 \cdot R_1
+\]
+Read left-to-right: $R_3$ is the last rotation applied, but it acts about a world-fixed axis.
+
+\textbf{Intrinsic rotations (body-fixed axes):} Each successive rotation is about an axis of the current (already-rotated) body frame. The total rotation is built by \textit{post-multiplying} (multiplying on the right):
+\[
+R_{\text{total}} = R_1 \cdot R_2 \cdot R_3
+\]
+Here $R_1$ rotates about the original body axis, $R_2$ about the once-rotated body axis, and so on.
+
+A remarkable fact: an intrinsic $ZYX$ rotation (yaw about body $z$, then pitch about the new body $y$, then roll about the newest body $x$) produces the \textit{same} matrix as an extrinsic $XYZ$ rotation (roll about world $x$, then pitch about world $y$, then yaw about world $z$). The order reverses. This is purely a consequence of the associativity of matrix multiplication.
+
+For the standard aerospace convention (intrinsic $ZYX$: yaw $\psi$, pitch $\theta$, roll $\phi$):
+\begin{equation}
+R = R_z(\psi) \cdot R_y(\theta) \cdot R_x(\phi)
+\end{equation}
+
+\textbf{Common pitfall:} Getting the multiplication order wrong compiles fine and runs fine---it just gives a subtly wrong orientation. There is no runtime error to alert you. Always write down the convention explicitly in your code comments.
+
+%-----------------------------------------------------------------------------
+\subsection{Euler Angles}
+%-----------------------------------------------------------------------------
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{euler_angles.pdf}
+  \caption{Building up a ZYX rotation step by step. Left: yaw only ($\psi = 30°$). Center: yaw + pitch ($\theta = 20°$). Right: yaw + pitch + roll ($\phi = 15°$). Faint axes show the world frame; bold axes show the body frame.}
+\end{figure}
+
+\subsubsection{Definition and Conventions}
+
+Euler angles describe an arbitrary rotation as a sequence of three elementary rotations about coordinate axes. There are 12 possible sequences (6 ``proper'' Euler angles like $ZXZ$, $ZYZ$, etc., and 6 Tait--Bryan angles like $ZYX$, $XYZ$, etc.). The most common in robotics and aerospace is the \textbf{ZYX} (yaw-pitch-roll) convention:
+
+\begin{enumerate}[nosep]
+    \item Yaw ($\psi$): rotate about the $z$-axis.
+    \item Pitch ($\theta$): rotate about the (new) $y$-axis.
+    \item Roll ($\phi$): rotate about the (newest) $x$-axis.
+\end{enumerate}
+
+The resulting rotation matrix is (intrinsic $ZYX$):
+\begin{equation}
+R = R_z(\psi) \, R_y(\theta) \, R_x(\phi)
+\end{equation}
+
+Expanding this product fully using the elementary matrices:
+
+\begin{equation}
+R = \begin{bmatrix}
+c_\psi c_\theta & c_\psi s_\theta s_\phi - s_\psi c_\phi & c_\psi s_\theta c_\phi + s_\psi s_\phi \\
+s_\psi c_\theta & s_\psi s_\theta s_\phi + c_\psi c_\phi & s_\psi s_\theta c_\phi - c_\psi s_\phi \\
+-s_\theta & c_\theta s_\phi & c_\theta c_\phi
+\end{bmatrix}
+\end{equation}
+
+where $c_\psi = \cos\psi$, $s_\psi = \sin\psi$, etc.
+
+\textbf{Extracting Euler angles from a rotation matrix.} Given a rotation matrix $R = [r_{ij}]$, the ZYX Euler angles can be recovered as:
+\begin{align}
+\theta &= -\arcsin(r_{31}) \\
+\phi &= \operatorname{atan2}(r_{32}, \, r_{33}) \\
+\psi &= \operatorname{atan2}(r_{21}, \, r_{11})
+\end{align}
+
+The use of $\operatorname{atan2}$ (which takes two arguments and returns the angle in the correct quadrant) is essential. Using $\arctan$ alone would give ambiguous results.
+
+\subsubsection{Gimbal Lock}
+
+Gimbal lock is the Achilles' heel of Euler angles, and it is the single most important reason to learn quaternions.
+
+\textbf{What is it?} When the pitch angle reaches $\theta = \pm 90°$, the yaw and roll axes become aligned---they rotate about the same physical axis. The system loses one degree of freedom. You can still represent the current orientation, but you cannot distinguish certain rotations near the singularity, and small changes in orientation cause wild jumps in the Euler angles.
+
+\textbf{Mathematical demonstration.} Set $\theta = 90°$ (so $\cos\theta = 0$ and $\sin\theta = 1$) in the rotation matrix:
+
+\begin{equation}
+R\big|_{\theta=90°} = \begin{bmatrix}
+0 & \cos\psi \sin\phi - \sin\psi \cos\phi & \cos\psi \cos\phi + \sin\psi \sin\phi \\
+0 & \sin\psi \sin\phi + \cos\psi \cos\phi & \sin\psi \cos\phi - \cos\psi \sin\phi \\
+-1 & 0 & 0
+\end{bmatrix}
+\end{equation}
+
+Using the angle subtraction identities, this simplifies to:
+\begin{equation}
+R\big|_{\theta=90°} = \begin{bmatrix}
+0 & -\sin(\psi - \phi) & \cos(\psi - \phi) \\
+0 & \cos(\psi - \phi) & \sin(\psi - \phi) \\
+-1 & 0 & 0
+\end{bmatrix}
+\end{equation}
+
+Notice: only the \textit{difference} $\psi - \phi$ appears. We have three parameters ($\psi, \theta, \phi$) but only two are independent at this configuration---one degree of freedom is lost. There are infinitely many $(\psi, \phi)$ pairs that give the same rotation, as long as their difference is the same.
+
+\textbf{Physical analogy.} Imagine a three-axis gimbal (like on a camera stabilizer). The inner ring controls roll, the middle ring controls pitch, and the outer ring controls yaw. When the middle ring tilts to $90°$, the inner and outer rings become coplanar. Rotating the inner ring now produces the same motion as rotating the outer ring---you have lost the ability to independently control one axis.
+
+\textbf{Why this matters in practice.} If you are running an EKF that tracks Euler angles as its state vector, the covariance matrix becomes singular near $\theta = \pm 90°$---the filter diverges. Even before reaching exactly $90°$, the kinematic equations that relate angular velocity $\boldsymbol{\omega}$ to Euler angle rates contain $\cos\theta$ in the denominator:
+\begin{equation}
+\begin{bmatrix} \dot{\phi} \\ \dot{\theta} \\ \dot{\psi} \end{bmatrix}
+= \begin{bmatrix}
+1 & \sin\phi \tan\theta & \cos\phi \tan\theta \\
+0 & \cos\phi & -\sin\phi \\
+0 & \sin\phi / \cos\theta & \cos\phi / \cos\theta
+\end{bmatrix}
+\boldsymbol{\omega}
+\end{equation}
+
+The $\tan\theta$ terms blow up as $\theta \to \pm 90°$. This is not a numerical precision issue---it is a fundamental topological limitation of representing $\mathrm{SO}(3)$ with only three parameters.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.85\textwidth]{gimbal_lock.pdf}
+  \caption{Gimbal lock. Left: normal operation---the three gimbal rings provide three independent degrees of freedom. Right: when pitch reaches $90°$, the inner and outer rings align, collapsing yaw and roll into the same axis (dashed ring). One DOF is lost.}
+\end{figure}
+
+This motivates the search for a singularity-free representation: quaternions.
+
+%-----------------------------------------------------------------------------
+\subsection{Quaternions}
+%-----------------------------------------------------------------------------
+
+\subsubsection{Axis-Angle Rotation: The Gateway to Quaternions}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.6\textwidth]{axis_angle.pdf}
+  \caption{Axis-angle rotation: vector $\mathbf{v}$ is rotated by angle $\theta$ about axis $\hat{n}$ to produce $\mathbf{v}'$. The dashed lines show the projection onto the rotation axis.}
+\end{figure}
+
+Before jumping to quaternions, we need one more concept. \textbf{Euler's rotation theorem} states that any rotation of a rigid body in 3D can be described by a single axis $\hat{n}$ (a unit vector) and a single angle $\theta$. No matter how complicated the rotation, there is always one axis that stays fixed, and the body has simply rotated around it.
+
+This leads to \textbf{Rodrigues' rotation formula}, which rotates a vector $\mathbf{v}$ by angle $\theta$ about axis $\hat{n}$:
+\begin{equation}
+\mathbf{v}' = \mathbf{v} \cos\theta + (\hat{n} \times \mathbf{v}) \sin\theta + \hat{n} (\hat{n} \cdot \mathbf{v})(1 - \cos\theta)
+\end{equation}
+
+\textbf{Derivation.} Decompose $\mathbf{v}$ into a component parallel to $\hat{n}$ and a component perpendicular to $\hat{n}$:
+\[
+\mathbf{v}_\parallel = \hat{n}(\hat{n} \cdot \mathbf{v}), \qquad \mathbf{v}_\perp = \mathbf{v} - \mathbf{v}_\parallel
+\]
+The parallel component is unchanged by rotation about $\hat{n}$: $\mathbf{v}'_\parallel = \mathbf{v}_\parallel$. The perpendicular component rotates in the plane spanned by $\mathbf{v}_\perp$ and $\hat{n} \times \mathbf{v}$ (which is perpendicular to both $\hat{n}$ and $\mathbf{v}_\perp$, and has the same magnitude as $\mathbf{v}_\perp$):
+\[
+\mathbf{v}'_\perp = \mathbf{v}_\perp \cos\theta + (\hat{n} \times \mathbf{v}) \sin\theta
+\]
+Adding the two components: $\mathbf{v}' = \mathbf{v}_\parallel + \mathbf{v}'_\perp = \hat{n}(\hat{n} \cdot \mathbf{v}) + (\mathbf{v} - \hat{n}(\hat{n} \cdot \mathbf{v}))\cos\theta + (\hat{n} \times \mathbf{v})\sin\theta$. Rearranging gives the formula above.
+
+The corresponding rotation matrix form is:
+\begin{equation}
+R = I \cos\theta + (1 - \cos\theta) \hat{n}\hat{n}^T + \sin\theta \, [\hat{n}]_\times
+\end{equation}
+
+where $[\hat{n}]_\times$ is the \textbf{skew-symmetric matrix} of $\hat{n} = (n_1, n_2, n_3)$:
+\begin{equation}
+[\hat{n}]_\times = \begin{bmatrix} 0 & -n_3 & n_2 \\ n_3 & 0 & -n_1 \\ -n_2 & n_1 & 0 \end{bmatrix}
+\end{equation}
+
+This matrix has the property that $[\hat{n}]_\times \mathbf{v} = \hat{n} \times \mathbf{v}$ for any vector $\mathbf{v}$.
+
+\subsubsection{From Axis-Angle to Quaternions}
+
+The axis-angle representation is intuitive, but it does not compose nicely: combining two axis-angle rotations requires going through rotation matrices or trigonometric identities. Quaternions solve this problem.
+
+A \textbf{unit quaternion} encodes the same axis-angle rotation $(\hat{n}, \theta)$ as a four-component object:
+\begin{equation}
+q = \begin{bmatrix} \cos(\theta/2) \\ \sin(\theta/2) \, \hat{n} \end{bmatrix}
+= \begin{bmatrix} q_w \\ q_x \\ q_y \\ q_z \end{bmatrix}
+\end{equation}
+
+where $q_w$ is the scalar (real) part and $(q_x, q_y, q_z)$ is the vector (imaginary) part.
+
+\textbf{Why $\theta/2$ and not $\theta$?} This is the key insight. Quaternions live in a space where the algebraic structure (the Hamilton product, defined below) naturally composes rotations---but this only works with the half-angle encoding. The deep reason is topological: $\mathrm{SO}(3)$ is not simply connected, and the unit quaternion sphere $S^3$ is its \textbf{double cover}. This means that $q$ and $-q$ represent the \textit{same} rotation (negating all four components gives the same axis-angle pair with $\theta$ shifted by $2\pi$). This double-cover property is the price we pay for a singularity-free representation.
+
+The set of unit quaternions satisfies $|q| = \sqrt{q_w^2 + q_x^2 + q_y^2 + q_z^2} = 1$, forming the 3-sphere $S^3$ in four-dimensional space.
+
+\subsubsection{Quaternion Operations}
+
+\textbf{Hamilton product (quaternion multiplication).} Given two quaternions $p = (p_w, \mathbf{p}_v)$ and $q = (q_w, \mathbf{q}_v)$ where $\mathbf{p}_v$ and $\mathbf{q}_v$ are the vector parts:
+\begin{equation}
+p \otimes q = \begin{bmatrix}
+p_w q_w - \mathbf{p}_v \cdot \mathbf{q}_v \\
+p_w \mathbf{q}_v + q_w \mathbf{p}_v + \mathbf{p}_v \times \mathbf{q}_v
+\end{bmatrix}
+\end{equation}
+
+Written out component-wise:
+\begin{equation}
+p \otimes q = \begin{bmatrix}
+p_w q_w - p_x q_x - p_y q_y - p_z q_z \\
+p_w q_x + p_x q_w + p_y q_z - p_z q_y \\
+p_w q_y - p_x q_z + p_y q_w + p_z q_x \\
+p_w q_z + p_x q_y - p_y q_x + p_z q_w
+\end{bmatrix}
+\end{equation}
+
+This product is \textbf{associative} $(p \otimes (q \otimes r) = (p \otimes q) \otimes r)$ but \textbf{not commutative} ($p \otimes q \neq q \otimes p$ in general). The non-commutativity reflects the physical fact that rotations in 3D do not commute.
+
+\textbf{Rotating a vector.} To rotate a vector $\mathbf{v} \in \mathbb{R}^3$ by the rotation encoded in quaternion $q$, embed the vector as a ``pure quaternion'' $\bar{v} = (0, \mathbf{v})$ and compute:
+\begin{equation}
+\bar{v}' = q \otimes \bar{v} \otimes q^*
+\end{equation}
+
+where $q^*$ is the conjugate. The result $\bar{v}'$ is again a pure quaternion whose vector part is the rotated vector $\mathbf{v}'$. Why the double product? A single multiplication $q \otimes \bar{v}$ would not, in general, produce a pure quaternion (it could have a nonzero scalar part). The ``sandwich'' product $q \otimes \bar{v} \otimes q^*$ guarantees the scalar part vanishes, giving a proper 3D vector.
+
+\textbf{Composing rotations.} Just like rotation matrices, quaternion rotations compose by multiplication, in the same right-to-left order:
+\begin{equation}
+q_{\text{total}} = q_2 \otimes q_1
+\end{equation}
+
+This means: ``first apply $q_1$, then apply $q_2$.'' To verify: $q_{\text{total}} \otimes \bar{v} \otimes q_{\text{total}}^* = q_2 \otimes (q_1 \otimes \bar{v} \otimes q_1^*) \otimes q_2^*$, which is indeed $q_1$ first, then $q_2$.
+
+\textbf{Inverse and conjugate.} For a unit quaternion $q = (q_w, q_x, q_y, q_z)$:
+\begin{equation}
+q^{-1} = q^* = (q_w, -q_x, -q_y, -q_z)
+\end{equation}
+
+For unit quaternions, the inverse equals the conjugate (just like $R^{-1} = R^T$ for rotation matrices). This represents the reverse rotation.
+
+\textbf{Quaternion to rotation matrix.} The rotation matrix corresponding to unit quaternion $q = (q_w, q_x, q_y, q_z)$ is:
+\begin{equation}
+R = \begin{bmatrix}
+1 - 2(q_y^2 + q_z^2) & 2(q_x q_y - q_z q_w) & 2(q_x q_z + q_y q_w) \\
+2(q_x q_y + q_z q_w) & 1 - 2(q_x^2 + q_z^2) & 2(q_y q_z - q_x q_w) \\
+2(q_x q_z - q_y q_w) & 2(q_y q_z + q_x q_w) & 1 - 2(q_x^2 + q_y^2)
+\end{bmatrix}
+\end{equation}
+
+You can verify that $R^T R = I$ and $\det(R) = 1$ using $q_w^2 + q_x^2 + q_y^2 + q_z^2 = 1$.
+
+\textbf{Quaternion to Euler angles (ZYX convention).} Given $q = (q_w, q_x, q_y, q_z)$:
+\begin{align}
+\phi &= \operatorname{atan2}\!\big(2(q_w q_x + q_y q_z), \; 1 - 2(q_x^2 + q_y^2)\big) \\
+\theta &= -\arcsin\!\big(2(q_x q_z - q_w q_y)\big) \\
+\psi &= \operatorname{atan2}\!\big(2(q_w q_z + q_x q_y), \; 1 - 2(q_y^2 + q_z^2)\big)
+\end{align}
+
+These formulas follow directly from comparing the quaternion-to-matrix formula with the Euler angle matrix and applying the same extraction procedure.
+
+\subsubsection{Why Quaternions Win}
+
+Having seen both Euler angles and rotation matrices, here is why quaternions are the preferred representation for state estimation and control:
+
+\textbf{No gimbal lock.} Quaternions parameterize $\mathrm{SO}(3)$ smoothly everywhere. There is no configuration where a degree of freedom is lost. The kinematic equation for quaternion propagation is:
+\begin{equation}
+\dot{q} = \frac{1}{2} q \otimes \begin{bmatrix} 0 \\ \boldsymbol{\omega} \end{bmatrix}
+\end{equation}
+
+where $\boldsymbol{\omega}$ is the angular velocity in the body frame. No tangent terms, no divisions by cosine, no singularities.
+
+\textbf{Compact representation.} A quaternion uses 4 numbers, compared to 9 for a rotation matrix. It has only 1 constraint (unit norm) versus 6 constraints (orthogonality + unit determinant) for a rotation matrix. This makes quaternions easier to normalize and numerically more robust.
+
+\textbf{Efficient composition.} The Hamilton product requires 16 multiplications and 12 additions. A $3 \times 3$ matrix product requires 27 multiplications and 18 additions. On a microcontroller, this difference adds up.
+
+\textbf{Smooth interpolation.} Spherical Linear Interpolation (SLERP) provides the shortest, constant-speed path between two orientations on the quaternion sphere:
+\begin{equation}
+\text{SLERP}(q_0, q_1, t) = q_0 \frac{\sin((1-t)\Omega)}{\sin\Omega} + q_1 \frac{\sin(t\Omega)}{\sin\Omega}
+\end{equation}
+
+where $\Omega = \arccos(q_0 \cdot q_1)$ and $t \in [0, 1]$. This is invaluable for trajectory planning and animation. There is no clean equivalent for Euler angles.
+
+%-----------------------------------------------------------------------------
+\subsection{Practical Summary}
+%-----------------------------------------------------------------------------
+
+The table below compares the four representations we have covered:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}lccll@{}}
+\toprule
+\textbf{Representation} & \textbf{Params} & \textbf{Singularity?} & \textbf{Composition} & \textbf{Best for} \\
+\midrule
+Rotation matrix & 9 (6 constraints) & No & Matrix multiply & General computation \\
+Euler angles & 3 & Yes (gimbal lock) & Must convert to matrix & Human-readable display \\
+Quaternion & 4 (1 constraint) & No & Hamilton product & State estimation, interpolation \\
+Axis-angle & 4 (axis + angle) & At $\theta = 0$ & Must convert & Intuitive understanding \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+In practice, you will often use all four in the same project: quaternions as the internal state of your EKF, rotation matrices for coordinate transformations in your kinematics code, Euler angles for displaying the current attitude to the operator (``yaw: 45\textdegree, pitch: 10\textdegree, roll: 2\textdegree''), and axis-angle for specifying desired rotations in your trajectory planner (``rotate 30\textdegree{} about the vertical axis'').
+
+With this foundation, you are now equipped to understand the quaternion-based EKF in the Modern Control chapter. The key insight is: \textit{use quaternions for computation, convert to Euler angles only for display.}
