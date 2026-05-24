@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>A Practical Guide to Control Theory</title>
+    <title>控制理论实用指南</title>
     <style>
         :root {
             --bg: #fafafa;
@@ -379,15 +379,15 @@
 <body>
 
 <div class="header">
-    <h1 id="title">A Practical Guide to Control Theory</h1>
-    <p class="subtitle" id="subtitle">From PID to MPC, From Kalman Filters to Nonlinear Control</p>
+    <h1 id="title">控制理论实用指南</h1>
+    <p class="subtitle" id="subtitle">从 PID 到 MPC，从卡尔曼滤波到非线性控制</p>
     <p class="author">
         by Skywalker Liu &middot;
         <a href="https://github.com/liuskywalkerjskd/Control-Note" target="_blank">GitHub</a>
     </p>
     <div class="lang-toggle">
-        <button class="lang-btn active" onclick="setLang('en')">English</button>
-        <button class="lang-btn" onclick="setLang('zh')">中文</button>
+        <button class="lang-btn" onclick="setLang('en')">English</button>
+        <button class="lang-btn active" onclick="setLang('zh')">中文</button>
     </div>
 </div>
 
@@ -397,22 +397,22 @@
         <div class="reader-tabs">
             <button class="reader-tab active" id="tab-zh" onclick="switchTab('zh')">
                 <svg viewBox="0 0 24 24"><path d="M12 6.25278V19.2528M12 6.25278C10.8321 5.47686 9.24649 5 7.5 5C5.75351 5 4.16789 5.47686 3 6.25278V19.2528C4.16789 18.4769 5.75351 18 7.5 18C9.24649 18 10.8321 18.4769 12 19.2528M12 6.25278C13.1679 5.47686 14.7535 5 16.5 5C18.2465 5 19.8321 5.47686 21 6.25278V19.2528C19.8321 18.4769 18.2465 18 16.5 18C14.7535 18 13.1679 18.4769 12 19.2528"/></svg>
-                <span id="tab-zh-text">Chinese Edition</span>
+                <span id="tab-zh-text">中文版</span>
             </button>
             <button class="reader-tab" id="tab-en" onclick="switchTab('en')">
                 <svg viewBox="0 0 24 24"><path d="M12 6.25278V19.2528M12 6.25278C10.8321 5.47686 9.24649 5 7.5 5C5.75351 5 4.16789 5.47686 3 6.25278V19.2528C4.16789 18.4769 5.75351 18 7.5 18C9.24649 18 10.8321 18.4769 12 19.2528M12 6.25278C13.1679 5.47686 14.7535 5 16.5 5C18.2465 5 19.8321 5.47686 21 6.25278V19.2528C19.8321 18.4769 18.2465 18 16.5 18C14.7535 18 13.1679 18.4769 12 19.2528"/></svg>
-                <span id="tab-en-text">English Edition</span>
+                <span id="tab-en-text">英文版</span>
             </button>
         </div>
         <div class="reader-frame-wrapper">
             <div class="reader-toolbar">
                 <button onclick="openInNewTab()" id="btn-newtab">
                     <svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/></svg>
-                    <span id="btn-newtab-text">Open in New Tab</span>
+                    <span id="btn-newtab-text">新标签页打开</span>
                 </button>
                 <a id="btn-download" class="dl-btn" href="Control_Theory_Note_cn.pdf" download style="padding:5px 12px; font-size:0.8rem; border-width:1px; border-radius:6px;">
                     <svg viewBox="0 0 24 24"><path d="M12 16l-5-5h3V4h4v7h3l-5 5zm-7 4h14v-2H5v2z"/></svg>
-                    <span id="btn-dl-text">Download</span>
+                    <span id="btn-dl-text">下载</span>
                 </a>
             </div>
             <iframe class="pdf-frame" id="pdf-reader" src="Control_Theory_Note_cn.pdf"></iframe>
@@ -422,13 +422,13 @@
     <!-- GitHub CTA -->
     <div class="github-cta">
         <div class="github-cta-text">
-            <h3 id="cta-title">Found it helpful? Give it a star!</h3>
-            <p id="cta-desc">Your star helps more engineers discover this guide. Open source, free forever.</p>
+            <h3 id="cta-title">觉得有帮助？给个 Star 吧！</h3>
+            <p id="cta-desc">你的 Star 能帮助更多工程师发现这份指南。开源免费，永远如此。</p>
         </div>
         <div class="github-cta-buttons">
             <a class="star-btn" href="https://github.com/liuskywalkerjskd/Control-Note" target="_blank">
                 <svg viewBox="0 0 24 24"><path d="M12 .587l3.668 7.431 8.2 1.191-5.934 5.787 1.4 8.168L12 18.896l-7.334 3.868 1.4-8.168L.132 9.209l8.2-1.191z"/></svg>
-                <span id="star-btn-text">Star on GitHub</span>
+                <span id="star-btn-text">去 GitHub Star</span>
             </a>
         </div>
     </div>
@@ -436,11 +436,11 @@
     <!-- TOC -->
     <div class="toc-card">
         <div class="collapsible-header" onclick="toggleToc()">
-            <h2 id="toc-heading">Table of Contents</h2>
+            <h2 id="toc-heading">目录</h2>
             <span class="toggle-icon" id="toc-toggle">&#9660;</span>
         </div>
         <div class="toc-content collapsed" id="toc-content">
-            <ul class="toc-list" id="toc-en">
+            <ul class="toc-list" id="toc-en" style="display:none">
                 <li><span class="toc-num">-</span><span class="toc-title">Two Numbers: e and &pi;</span><span class="toc-desc">Why &pi; governs periodicity and e governs decay; Euler's formula</span></li>
                 <li><span class="toc-num">1</span><span class="toc-title">Introduction</span><span class="toc-desc">Motivation, learning path, how to use this guide</span></li>
                 <li><span class="toc-num">2</span><span class="toc-title">Digital Signal Processing</span><span class="toc-desc">Laplace/Fourier/Z-transforms, poles & zeros, LPF/BPF/HPF/notch filters</span></li>
@@ -455,7 +455,7 @@
                 <li><span class="toc-num">A</span><span class="toc-title">Appendix: C++ Modules</span><span class="toc-desc">Header-only, embedded-ready implementations of all algorithms</span></li>
                 <li><span class="toc-num">B</span><span class="toc-title">Appendix: Attitude & Rotation</span><span class="toc-desc">Coordinate frames, rotation matrices, Euler angles, gimbal lock, quaternions</span></li>
             </ul>
-            <ul class="toc-list" id="toc-zh" style="display:none">
+            <ul class="toc-list" id="toc-zh">
                 <li><span class="toc-num">-</span><span class="toc-title">两个支配世界的数</span><span class="toc-desc">&pi; 主导周期性，e 主导衰减；欧拉公式</span></li>
                 <li><span class="toc-num">1</span><span class="toc-title">引言</span><span class="toc-desc">写作动机、学习路径、阅读方式</span></li>
                 <li><span class="toc-num">2</span><span class="toc-title">数字信号处理</span><span class="toc-desc">拉普拉斯/傅里叶/Z 变换、极零点、低通/带通/高通/陷波滤波</span></li>
@@ -476,16 +476,16 @@
     <!-- Info cards -->
     <div class="info-grid">
         <div class="info-card">
-            <h3 id="card1-title">Who Is This For?</h3>
-            <p id="card1-desc">Undergraduate students (year 1-3) with basic calculus and linear algebra. If derivatives don't scare you, you're ready.</p>
+            <h3 id="card1-title">写给谁看？</h3>
+            <p id="card1-desc">大一到大三的本科生。前置知识：微积分和基础线性代数。知道导数是什么就够了。</p>
         </div>
         <div class="info-card">
-            <h3 id="card2-title">What Makes This Different?</h3>
-            <p id="card2-desc">Organized by engineering workflow, not mathematical abstraction. Every concept answers: "What is this for when the robot hits the field?"</p>
+            <h3 id="card2-title">有什么特别之处？</h3>
+            <p id="card2-desc">围绕工程工作流组织，而非数学抽象。每个概念都会追问："机器人上场的时候，这玩意到底有什么用？"</p>
         </div>
         <div class="info-card">
-            <h3 id="card3-title">Battle-Tested Code</h3>
-            <p id="card3-desc">Header-only C++ modules in the appendix -- no heap allocation, no exceptions, ISR-safe. Copy into your project and go.</p>
+            <h3 id="card3-title">经过实战检验的代码</h3>
+            <p id="card3-desc">附录中的 C++ 模块：仅头文件、无堆分配、无异常、中断安全。直接复制到你的项目即可使用。</p>
         </div>
     </div>
 </div>
@@ -538,7 +538,7 @@ const i18n = {
     }
 };
 
-let currentLang = 'en';
+let currentLang = 'zh';
 let currentTab = 'zh';
 
 function setLang(lang) {
